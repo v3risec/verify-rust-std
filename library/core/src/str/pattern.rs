@@ -527,48 +527,31 @@ unsafe impl<'a> Searcher<'a> for CharSearcher<'a> {
         let search_start = self.finger;
         #[cfg(kani)]
         let search_end = self.finger_back;
-        #[cfg(kani)]
-        let haystack_len = self.haystack.len();
-        #[cfg(kani)]
-        let haystack_ptr = self.haystack.as_ptr();
-        #[cfg(kani)]
-        let search_start_is_boundary = self.haystack.is_char_boundary(search_start);
-        #[cfg(kani)]
-        let search_end_is_boundary = self.haystack.is_char_boundary(search_end);
-        #[cfg(kani)]
-        let utf8_size = self.utf8_size;
-        #[cfg(kani)]
-        let needle = self.needle;
-        #[cfg(kani)]
-        let utf8_encoded_0 = self.utf8_encoded[0];
-        #[cfg(kani)]
-        let utf8_encoded_1 = self.utf8_encoded[1];
-        #[cfg(kani)]
-        let utf8_encoded_2 = self.utf8_encoded[2];
-        #[cfg(kani)]
-        let utf8_encoded_3 = self.utf8_encoded[3];
 
-        // == Kani Loop Contract Start: CharSearcher::next_match ==
-        #[cfg_attr(kani, kani::loop_invariant(
-            self.haystack.as_ptr() == haystack_ptr
-                && self.haystack.len() == haystack_len
-                && self.needle == needle
-                && self.utf8_encoded[0] == utf8_encoded_0
-                && self.utf8_encoded[1] == utf8_encoded_1
-                && self.utf8_encoded[2] == utf8_encoded_2
-                && self.utf8_encoded[3] == utf8_encoded_3
-                && search_start <= self.finger
-                && self.finger <= search_end
-                && self.finger_back == search_end
-                && search_end <= haystack_len
-                && search_start_is_boundary
-                && search_end_is_boundary
-                && self.utf8_size == utf8_size
-                && 1 <= self.utf8_size
-                && self.utf8_size <= MAX_LEN_UTF8 as u8
-        ))]
-        // == Kani Loop Contract End: CharSearcher::next_match ==
+        // Loop stubbing: verify the real loop body at an arbitrary
+        // loop-head state, then over-approximate the remaining iterations.
+        // A loop-head `finger` need not be a UTF-8 boundary.
+        #[cfg(kani)]
+        {
+            assert!(kani_pattern_harness_helpers::valid_char_next_match_loop_head(
+                self,
+                search_start,
+                search_end,
+            ));
+            self.finger = kani::any_where(|finger: &usize| {
+                search_start <= *finger && *finger <= search_end
+            });
+            assert!(kani_pattern_harness_helpers::valid_char_next_match_loop_head(
+                self,
+                search_start,
+                search_end,
+            ));
+        }
+
         loop {
+            #[cfg(kani)]
+            let iteration_start = self.finger;
+
             // get the haystack after the last character found
             let bytes = self.haystack.as_bytes().get(self.finger..self.finger_back)?;
             // the last byte of the utf8 encoded needle
@@ -610,6 +593,28 @@ unsafe impl<'a> Searcher<'a> for CharSearcher<'a> {
                 // found nothing, exit
                 self.finger = self.finger_back;
                 return None;
+            }
+
+            #[cfg(kani)]
+            {
+                // Every continuing concrete iteration strictly reduces
+                // `search_end - self.finger` and re-establishes the abstract
+                // loop-head relation. This justifies using one arbitrary
+                // representative iteration for the unbounded scan.
+                assert!(iteration_start < self.finger);
+                assert!(self.finger <= search_end);
+                assert!(search_end - self.finger < search_end - iteration_start);
+                assert!(kani_pattern_harness_helpers::valid_char_next_match_loop_head(
+                    self,
+                    search_start,
+                    search_end,
+                ));
+
+                return kani_pattern_harness_helpers::stub_char_next_match_remaining(
+                    self,
+                    search_start,
+                    search_end,
+                );
             }
         }
     }
@@ -2680,6 +2685,93 @@ mod kani_pattern_harness_helpers {
             && s.utf8_encoding_matches_needle()
     }
 
+    // Abstract loop-head relation for `CharSearcher::next_match`.
+    //
+    // Unlike the public type invariant, this deliberately does not require
+    // `s.finger` to be a UTF-8 boundary. The byte scan can stop on a
+    // continuation byte before a later iteration finds the complete needle.
+    pub(super) fn valid_char_next_match_loop_head(
+        s: &CharSearcher<'_>,
+        search_start: usize,
+        search_end: usize,
+    ) -> bool {
+        search_start <= s.finger
+            && s.finger <= search_end
+            && s.finger_back == search_end
+            && search_end <= s.haystack.len()
+            && s.haystack.is_char_boundary(search_start)
+            && s.haystack.is_char_boundary(search_end)
+            && 1 <= s.utf8_size()
+            && s.utf8_size() <= MAX_LEN_UTF8
+            && s.utf8_encoding_matches_needle()
+    }
+
+    // Exit relation used by the loop stub for the unexecuted suffix of
+    // `CharSearcher::next_match`. It omits UTF-8 boundary facts: the harness
+    // imports those only after proving that a successful range contains the
+    // complete cached encoding of `needle` in a valid UTF-8 haystack.
+    pub(super) fn valid_char_next_match_stub_result(
+        s: &CharSearcher<'_>,
+        search_start: usize,
+        search_end: usize,
+        result: Option<(usize, usize)>,
+    ) -> bool {
+        if !valid_char_next_match_loop_head(s, search_start, search_end) {
+            return false;
+        }
+
+        match result {
+            Some((a, b)) => {
+                if search_start > a || a >= b || b > search_end || b != s.finger {
+                    return false;
+                }
+                let Some(candidate) = s.haystack.as_bytes().get(a..b) else {
+                    return false;
+                };
+                b - a == s.utf8_size() && s.utf8_encoded_matches(candidate)
+            }
+            None => s.finger == search_end,
+        }
+    }
+
+    // Over-approximate every possible exit after a continuing representative
+    // iteration. `None` is always possible in the abstraction. A symbolic
+    // `Some` is restricted only by safety-relevant facts true of every concrete
+    // successful exit; it intentionally does not promise the first match.
+    pub(super) fn stub_char_next_match_remaining(
+        s: &mut CharSearcher<'_>,
+        search_start: usize,
+        search_end: usize,
+    ) -> Option<(usize, usize)> {
+        assert!(valid_char_next_match_loop_head(s, search_start, search_end));
+
+        let result = if kani::any::<bool>() {
+            let a: usize = kani::any();
+            let b: usize = kani::any();
+            kani::assume(search_start <= a);
+            kani::assume(a < b);
+            kani::assume(b <= search_end);
+            kani::assume(b - a == s.utf8_size());
+
+            let candidate = s.haystack.as_bytes().get(a..b).unwrap();
+            kani::assume(s.utf8_encoded_matches(candidate));
+
+            s.finger = b;
+            Some((a, b))
+        } else {
+            s.finger = search_end;
+            None
+        };
+
+        assert!(valid_char_next_match_stub_result(
+            s,
+            search_start,
+            search_end,
+            result,
+        ));
+        result
+    }
+
     // Type invariant C for MultiCharEqSearcher.
     //
     // `front_offset` and the remaining byte iterator describe the active
@@ -3447,6 +3539,9 @@ mod verify_char_searcher {
 
         let step = searcher.next_match();
 
+        // kani::cover!(step.is_some(), "CharSearcher::next_match may return Some");
+        // kani::cover!(step.is_none(), "CharSearcher::next_match may return None");
+
         // The helper proves the returned range and cached-encoding relations,
         // then imports only the character-boundary consequence permitted by
         // Challenge 20's valid-UTF-8 and `str::validations` assumptions.
@@ -3585,663 +3680,356 @@ mod verify_char_searcher {
         ));
     }
 
-    // MultiCharEqSearcher Harnesses
+    // Generate the same seven harnesses for `MultiCharEqSearcher` and each
+    // public wrapper around it.
+    //
+    // Each invocation provides:
+    // - `flavor`: `direct` for `MultiCharEqSearcher`, `wrapper` for tuple wrappers.
+    // - `names`: the concrete harness names exposed to Kani.
+    // - `setup`: construction code for one searcher type.
+    // - `invariant`: the type-specific view of invariant C.
+    //
+    // `setup` is expanded inside every harness. This keeps borrowed arrays and
+    // slices alive for the full harness instead of returning them from a helper.
+    // The constructor harness checks initialization. Each method harness then
+    // selects an arbitrary valid window, snapshots it, calls one method, and
+    // checks invariant preservation plus the direction-specific postcondition.
+    macro_rules! generate_multi_char_eq_harnesses {
+        (
+            flavor: $flavor:ident,
+            names {
+                into_searcher: $into_searcher:ident,
+                next: $next:ident,
+                next_match: $next_match:ident,
+                next_reject: $next_reject:ident,
+                next_back: $next_back:ident,
+                next_match_back: $next_match_back:ident,
+                next_reject_back: $next_reject_back:ident,
+            },
+            setup |$haystack:ident, $searcher:ident| {
+                $($setup:stmt)*
+            },
+            invariant: $invariant:path $(,)?
+        ) => {
+            #[kani::proof]
+            fn $into_searcher() {
+                let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
+                let $haystack = any_valid_utf8_str(&bytes);
+                $($setup)*
 
-    // Harness for `MultiCharEqSearcher::into_searcher`
-    #[kani::proof]
-    fn harness_multi_char_eq_into_searcher() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 2] = kani::any();
+                assert!($invariant(&$searcher));
+            }
 
-        let searcher = MultiCharEqPattern(pattern).into_searcher(haystack);
+            #[kani::proof]
+            fn $next() {
+                let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
+                let $haystack = any_valid_utf8_str(&bytes);
+                $($setup)*
+                let mut $searcher = $searcher;
 
-        assert!(type_invariant_multi_char_eq_searcher(&searcher));
+                generate_multi_char_eq_harnesses!(
+                    @set_active_window $flavor,
+                    $searcher
+                );
+                assert!($invariant(&$searcher));
+
+                let old_state =
+                    generate_multi_char_eq_harnesses!(@state $flavor, $searcher);
+                let step = $searcher.next();
+                let new_state =
+                    generate_multi_char_eq_harnesses!(@state $flavor, $searcher);
+
+                assume_valid_utf8_forward_boundary(
+                    $haystack,
+                    old_state.front,
+                    old_state.back,
+                    new_state.front,
+                );
+
+                assert!($invariant(&$searcher));
+                generate_multi_char_eq_harnesses!(
+                    @assert_forward_projection $flavor,
+                    old_state,
+                    new_state,
+                    step,
+                    $haystack
+                );
+                assert_forward_step(old_state, new_state, step, $haystack);
+            }
+
+            #[kani::proof]
+            fn $next_match() {
+                let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
+                let $haystack = any_valid_utf8_str(&bytes);
+                $($setup)*
+                let mut $searcher = $searcher;
+
+                generate_multi_char_eq_harnesses!(
+                    @set_active_window $flavor,
+                    $searcher
+                );
+                assert!($invariant(&$searcher));
+
+                let old_state =
+                    generate_multi_char_eq_harnesses!(@state $flavor, $searcher);
+                let result = $searcher.next_match();
+                let new_state =
+                    generate_multi_char_eq_harnesses!(@state $flavor, $searcher);
+
+                assert!($invariant(&$searcher));
+                assert_forward_filtered(old_state, new_state, result, $haystack);
+            }
+
+            #[kani::proof]
+            fn $next_reject() {
+                let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
+                let $haystack = any_valid_utf8_str(&bytes);
+                $($setup)*
+                let mut $searcher = $searcher;
+
+                generate_multi_char_eq_harnesses!(
+                    @set_active_window $flavor,
+                    $searcher
+                );
+                assert!($invariant(&$searcher));
+
+                let old_state =
+                    generate_multi_char_eq_harnesses!(@state $flavor, $searcher);
+                let result = $searcher.next_reject();
+                let new_state =
+                    generate_multi_char_eq_harnesses!(@state $flavor, $searcher);
+
+                assert!($invariant(&$searcher));
+                // The Kani path rebuilds the concrete CharIndices state after
+                // every modeled step, so this checks state preservation as well
+                // as the returned-range safety obligation.
+                assert_forward_filtered(old_state, new_state, result, $haystack);
+            }
+
+            #[kani::proof]
+            fn $next_back() {
+                let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
+                let $haystack = any_valid_utf8_str(&bytes);
+                $($setup)*
+                let mut $searcher = $searcher;
+
+                generate_multi_char_eq_harnesses!(
+                    @set_active_window $flavor,
+                    $searcher
+                );
+                assert!($invariant(&$searcher));
+
+                let old_state =
+                    generate_multi_char_eq_harnesses!(@state $flavor, $searcher);
+                let step = $searcher.next_back();
+                let new_state =
+                    generate_multi_char_eq_harnesses!(@state $flavor, $searcher);
+
+                assume_valid_utf8_reverse_boundary(
+                    $haystack,
+                    old_state.front,
+                    old_state.back,
+                    new_state.back,
+                    step,
+                );
+
+                assert!($invariant(&$searcher));
+                generate_multi_char_eq_harnesses!(
+                    @assert_reverse_projection $flavor,
+                    old_state,
+                    new_state,
+                    step,
+                    $haystack
+                );
+                assert_reverse_step(old_state, new_state, step, $haystack);
+            }
+
+            #[kani::proof]
+            fn $next_match_back() {
+                let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
+                let $haystack = any_valid_utf8_str(&bytes);
+                $($setup)*
+                let mut $searcher = $searcher;
+
+                generate_multi_char_eq_harnesses!(
+                    @set_active_window $flavor,
+                    $searcher
+                );
+                assert!($invariant(&$searcher));
+
+                let old_state =
+                    generate_multi_char_eq_harnesses!(@state $flavor, $searcher);
+                let result = $searcher.next_match_back();
+                let new_state =
+                    generate_multi_char_eq_harnesses!(@state $flavor, $searcher);
+
+                assert!($invariant(&$searcher));
+                assert_reverse_filtered(old_state, new_state, result, $haystack);
+            }
+
+            #[kani::proof]
+            fn $next_reject_back() {
+                let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
+                let $haystack = any_valid_utf8_str(&bytes);
+                $($setup)*
+                let mut $searcher = $searcher;
+
+                generate_multi_char_eq_harnesses!(
+                    @set_active_window $flavor,
+                    $searcher
+                );
+                assert!($invariant(&$searcher));
+
+                let old_state =
+                    generate_multi_char_eq_harnesses!(@state $flavor, $searcher);
+                let result = $searcher.next_reject_back();
+                let new_state =
+                    generate_multi_char_eq_harnesses!(@state $flavor, $searcher);
+
+                assert!($invariant(&$searcher));
+                assert_reverse_filtered(old_state, new_state, result, $haystack);
+            }
+        };
+
+        // Normalize the different layouts used by the shared harness body.
+        // The direct searcher owns `char_indices`; wrappers store it in field 0.
+        (@set_active_window direct, $searcher:ident) => {
+            set_any_multi_char_eq_active_window(&mut $searcher)
+        };
+        (@set_active_window wrapper, $searcher:ident) => {
+            set_any_multi_char_eq_active_window(&mut $searcher.0)
+        };
+
+        (@state direct, $searcher:ident) => {
+            char_indices_state(&$searcher.char_indices)
+        };
+        (@state wrapper, $searcher:ident) => {
+            char_indices_state(&$searcher.0.char_indices)
+        };
+
+        // These stronger projection checks describe the direct implementation.
+        // Wrapper harnesses use the shared public range checks instead.
+        (
+            @assert_forward_projection direct,
+            $old_state:ident,
+            $new_state:ident,
+            $step:ident,
+            $haystack:ident
+        ) => {
+            assert!(valid_multi_char_eq_forward_projection(
+                $old_state,
+                $new_state,
+                $step,
+                $haystack,
+            ))
+        };
+        (
+            @assert_forward_projection wrapper,
+            $old_state:ident,
+            $new_state:ident,
+            $step:ident,
+            $haystack:ident
+        ) => {};
+
+        (
+            @assert_reverse_projection direct,
+            $old_state:ident,
+            $new_state:ident,
+            $step:ident,
+            $haystack:ident
+        ) => {
+            assert!(valid_multi_char_eq_reverse_projection(
+                $old_state,
+                $new_state,
+                $step,
+                $haystack,
+            ))
+        };
+        (
+            @assert_reverse_projection wrapper,
+            $old_state:ident,
+            $new_state:ident,
+            $step:ident,
+            $haystack:ident
+        ) => {};
     }
 
-    // Harness for `MultiCharEqSearcher::next`.
-    #[kani::proof]
-    fn harness_multi_char_eq_next() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 2] = kani::any();
-        let mut searcher = MultiCharEqPattern(pattern).into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher);
-
-        assert!(type_invariant_multi_char_eq_searcher(&searcher));
-
-        let old_state = char_indices_state(&searcher.char_indices);
-
-        let step = searcher.next();
-
-        let new_state = char_indices_state(&searcher.char_indices);
-
-        assume_valid_utf8_forward_boundary(
-            haystack,
-            old_state.front,
-            old_state.back,
-            new_state.front,
-        );
-
-        assert!(type_invariant_multi_char_eq_searcher(&searcher));
-
-        assert!(valid_multi_char_eq_forward_projection(
-            old_state, new_state, step, haystack,
-        ));
-        assert_forward_step(old_state, new_state, step, haystack);
+    // Internal generic searcher used by all char-set patterns.
+    generate_multi_char_eq_harnesses! {
+        flavor: direct,
+        names {
+            into_searcher: harness_multi_char_eq_into_searcher,
+            next: harness_multi_char_eq_next,
+            next_match: harness_multi_char_eq_next_match,
+            next_reject: harness_multi_char_eq_next_reject,
+            next_back: harness_multi_char_eq_next_back,
+            next_match_back: harness_multi_char_eq_next_match_back,
+            next_reject_back: harness_multi_char_eq_next_reject_back,
+        },
+        setup |haystack, searcher| {
+            let pattern: [char; 4] = kani::any();
+            let searcher = MultiCharEqPattern(pattern).into_searcher(haystack);
+        },
+        invariant: type_invariant_multi_char_eq_searcher,
     }
 
-    // Harness for the `MultiCharEqSearcher::next_match`
-    #[kani::proof]
-    fn harness_multi_char_eq_next_match() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 2] = kani::any();
-        let mut searcher = MultiCharEqPattern(pattern).into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher);
-
-        assert!(type_invariant_multi_char_eq_searcher(&searcher));
-
-        let old_state = char_indices_state(&searcher.char_indices);
-
-        let step = searcher.next_match();
-
-        let new_state = char_indices_state(&searcher.char_indices);
-
-        assert!(type_invariant_multi_char_eq_searcher(&searcher));
-
-        assert_forward_filtered(old_state, new_state, step, haystack);
+    // Owned `[char; N]` pattern.
+    generate_multi_char_eq_harnesses! {
+        flavor: wrapper,
+        names {
+            into_searcher: harness_char_array_into_searcher,
+            next: harness_char_array_next,
+            next_match: harness_char_array_next_match,
+            next_reject: harness_char_array_next_reject,
+            next_back: harness_char_array_next_back,
+            next_match_back: harness_char_array_next_match_back,
+            next_reject_back: harness_char_array_next_reject_back,
+        },
+        setup |haystack, searcher| {
+            let pattern: [char; 4] = kani::any();
+            let searcher: CharArraySearcher<'_, 4> = pattern.into_searcher(haystack);
+        },
+        invariant: type_invariant_char_array,
     }
 
-    // Harness for the `MultiCharEqSearcher::next_reject`
-    #[kani::proof]
-    fn harness_multi_char_eq_next_reject() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 2] = kani::any();
-        let mut searcher = MultiCharEqPattern(pattern).into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher);
-
-        assert!(type_invariant_multi_char_eq_searcher(&searcher));
-
-        let old_state = char_indices_state(&searcher.char_indices);
-
-        let step = searcher.next_reject();
-
-        let new_state = char_indices_state(&searcher.char_indices);
-
-        assert!(type_invariant_multi_char_eq_searcher(&searcher));
-        assert_forward_filtered(old_state, new_state, step, haystack);
+    // Borrowed `&[char; N]` pattern.
+    generate_multi_char_eq_harnesses! {
+        flavor: wrapper,
+        names {
+            into_searcher: harness_char_array_ref_into_searcher,
+            next: harness_char_array_ref_next,
+            next_match: harness_char_array_ref_next_match,
+            next_reject: harness_char_array_ref_next_reject,
+            next_back: harness_char_array_ref_next_back,
+            next_match_back: harness_char_array_ref_next_match_back,
+            next_reject_back: harness_char_array_ref_next_reject_back,
+        },
+        setup |haystack, searcher| {
+            let pattern: [char; 4] = kani::any();
+            let searcher: CharArrayRefSearcher<'_, '_, 4> =
+                (&pattern).into_searcher(haystack);
+        },
+        invariant: type_invariant_char_array_ref,
     }
 
-    // Harness for `MultiCharEqSearcher::next_back`.
-    #[kani::proof]
-    fn harness_multi_char_eq_next_back() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 2] = kani::any();
-        let mut searcher = MultiCharEqPattern(pattern).into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher);
-
-        assert!(type_invariant_multi_char_eq_searcher(&searcher));
-
-        let old_state = char_indices_state(&searcher.char_indices);
-
-        let step = searcher.next_back();
-
-        let new_state = char_indices_state(&searcher.char_indices);
-
-        assume_valid_utf8_reverse_boundary(
-            haystack,
-            old_state.front,
-            old_state.back,
-            new_state.back,
-            step,
-        );
-
-        assert!(type_invariant_multi_char_eq_searcher(&searcher));
-
-        assert!(valid_multi_char_eq_reverse_projection(
-            old_state, new_state, step, haystack,
-        ));
-        assert_reverse_step(old_state, new_state, step, haystack);
-    }
-
-    // Harness for `MultiCharEqSearcher::next_match_back`.
-    #[kani::proof]
-    fn harness_multi_char_eq_next_match_back() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 2] = kani::any();
-        let mut searcher = MultiCharEqPattern(pattern).into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher);
-
-        assert!(type_invariant_multi_char_eq_searcher(&searcher));
-
-        let old_state = char_indices_state(&searcher.char_indices);
-
-        let result = searcher.next_match_back();
-
-        let new_state = char_indices_state(&searcher.char_indices);
-
-        assert!(type_invariant_multi_char_eq_searcher(&searcher));
-
-        assert_reverse_filtered(old_state, new_state, result, haystack);
-    }
-
-    // Harness for `MultiCharEqSearcher::next_reject_back`.
-    #[kani::proof]
-    fn harness_multi_char_eq_next_reject_back() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 2] = kani::any();
-        let mut searcher = MultiCharEqPattern(pattern).into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher);
-
-        assert!(type_invariant_multi_char_eq_searcher(&searcher));
-
-        let old_state = char_indices_state(&searcher.char_indices);
-
-        let result = searcher.next_reject_back();
-
-        let new_state = char_indices_state(&searcher.char_indices);
-
-        assert!(type_invariant_multi_char_eq_searcher(&searcher));
-
-        assert_reverse_filtered(old_state, new_state, result, haystack);
-    }
-
-    // CharArraySearcher Harnesses
-
-    // Harness for `CharArraySearcher::into_searcher`.
-    #[kani::proof]
-    fn harness_char_array_into_searcher() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 4] = kani::any();
-
-        let searcher: CharArraySearcher<'_, 4> = pattern.into_searcher(haystack);
-
-        assert!(type_invariant_char_array(&searcher));
-    }
-
-    // Harness for `CharArraySearcher::next`.
-    #[kani::proof]
-    fn harness_char_array_next() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 4] = kani::any();
-        let mut searcher: CharArraySearcher<'_, 4> = pattern.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_array(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let step = searcher.next();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assume_valid_utf8_forward_boundary(
-            haystack,
-            old_state.front,
-            old_state.back,
-            new_state.front,
-        );
-
-        assert!(type_invariant_char_array(&searcher));
-
-        assert_forward_step(old_state, new_state, step, haystack);
-    }
-
-    // Harness for the `CharArraySearcher::next_match`
-    #[kani::proof]
-    fn harness_char_array_next_match() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 4] = kani::any();
-        let mut searcher: CharArraySearcher<'_, 4> = pattern.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_array(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let step = searcher.next_match();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assert!(type_invariant_char_array(&searcher));
-
-        assert_forward_filtered(old_state, new_state, step, haystack);
-    }
-
-    // Harness for the `CharArraySearcher::next_reject`
-    #[kani::proof]
-    fn harness_char_array_next_reject() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 4] = kani::any();
-        let mut searcher: CharArraySearcher<'_, 4> = pattern.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_array(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let step = searcher.next_reject();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assert!(type_invariant_char_array(&searcher));
-        assert_forward_filtered(old_state, new_state, step, haystack);
-    }
-
-    // Harness for `CharArraySearcher::next_back`.
-    #[kani::proof]
-    fn harness_char_array_next_back() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 4] = kani::any();
-        let mut searcher: CharArraySearcher<'_, 4> = pattern.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_array(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let step = searcher.next_back();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assume_valid_utf8_reverse_boundary(
-            haystack,
-            old_state.front,
-            old_state.back,
-            new_state.back,
-            step,
-        );
-
-        assert!(type_invariant_char_array(&searcher));
-
-        assert_reverse_step(old_state, new_state, step, haystack);
-    }
-
-    // Harness for `CharArraySearcher::next_match_back`.
-    #[kani::proof]
-    fn harness_char_array_next_match_back() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 4] = kani::any();
-        let mut searcher: CharArraySearcher<'_, 4> = pattern.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_array(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let result = searcher.next_match_back();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assert!(type_invariant_char_array(&searcher));
-
-        assert_reverse_filtered(old_state, new_state, result, haystack);
-    }
-
-    // Harness for `CharArraySearcher::next_reject_back`.
-    #[kani::proof]
-    fn harness_char_array_next_reject_back() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 4] = kani::any();
-        let mut searcher: CharArraySearcher<'_, 4> = pattern.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_array(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let result = searcher.next_reject_back();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assert!(type_invariant_char_array(&searcher));
-
-        assert_reverse_filtered(old_state, new_state, result, haystack);
-    }
-
-    // CharArrayRefSearcher Harnesses
-
-    // Harness for `CharArrayRefSearcher::into_searcher`.
-    #[kani::proof]
-    fn harness_char_array_ref_into_searcher() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 4] = kani::any();
-
-        let searcher: CharArrayRefSearcher<'_, '_, 4> = (&pattern).into_searcher(haystack);
-
-        assert!(type_invariant_char_array_ref(&searcher));
-    }
-
-    // Harness for `CharArrayRefSearcher::next`.
-    #[kani::proof]
-    fn harness_char_array_ref_next() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 4] = kani::any();
-        let mut searcher: CharArrayRefSearcher<'_, '_, 4> = (&pattern).into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_array_ref(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let step = searcher.next();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assume_valid_utf8_forward_boundary(
-            haystack,
-            old_state.front,
-            old_state.back,
-            new_state.front,
-        );
-
-        assert!(type_invariant_char_array_ref(&searcher));
-
-        assert_forward_step(old_state, new_state, step, haystack);
-    }
-
-    // Harness for `CharArrayRefSearcher::next_match`.
-    #[kani::proof]
-    fn harness_char_array_ref_next_match() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 4] = kani::any();
-        let mut searcher: CharArrayRefSearcher<'_, '_, 4> = (&pattern).into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_array_ref(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let step = searcher.next_match();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assert!(type_invariant_char_array_ref(&searcher));
-
-        assert_forward_filtered(old_state, new_state, step, haystack);
-    }
-
-    // Harness for `CharArrayRefSearcher::next_reject`.
-    #[kani::proof]
-    fn harness_char_array_ref_next_reject() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 4] = kani::any();
-        let mut searcher: CharArrayRefSearcher<'_, '_, 4> = (&pattern).into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_array_ref(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let step = searcher.next_reject();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assert!(type_invariant_char_array_ref(&searcher));
-        assert_forward_filtered(old_state, new_state, step, haystack);
-    }
-
-    // Harness for `CharArrayRefSearcher::next_back`.
-    #[kani::proof]
-    fn harness_char_array_ref_next_back() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 4] = kani::any();
-        let mut searcher: CharArrayRefSearcher<'_, '_, 4> = (&pattern).into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_array_ref(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let step = searcher.next_back();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assume_valid_utf8_reverse_boundary(
-            haystack,
-            old_state.front,
-            old_state.back,
-            new_state.back,
-            step,
-        );
-
-        assert!(type_invariant_char_array_ref(&searcher));
-
-        assert_reverse_step(old_state, new_state, step, haystack);
-    }
-
-    // Harness for `CharArrayRefSearcher::next_match_back`.
-    #[kani::proof]
-    fn harness_char_array_ref_next_match_back() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 4] = kani::any();
-        let mut searcher: CharArrayRefSearcher<'_, '_, 4> = (&pattern).into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_array_ref(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let result = searcher.next_match_back();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assert!(type_invariant_char_array_ref(&searcher));
-
-        assert_reverse_filtered(old_state, new_state, result, haystack);
-    }
-
-    // Harness for `CharArrayRefSearcher::next_reject_back`.
-    #[kani::proof]
-    fn harness_char_array_ref_next_reject_back() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let pattern: [char; 4] = kani::any();
-        let mut searcher: CharArrayRefSearcher<'_, '_, 4> = (&pattern).into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_array_ref(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let result = searcher.next_reject_back();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assert!(type_invariant_char_array_ref(&searcher));
-
-        assert_reverse_filtered(old_state, new_state, result, haystack);
-    }
-
-    // CharSliceSearcher Harnesses
-
-    // Harness for `CharSliceSearcher::into_searcher`.
-    #[kani::proof]
-    fn harness_char_slice_into_searcher() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let chars: [char; 4] = kani::any();
-        let pattern: &[char] = kani::slice::any_slice_of_array(&chars);
-
-        let searcher: CharSliceSearcher<'_, '_> = pattern.into_searcher(haystack);
-
-        assert!(type_invariant_char_slice(&searcher));
-    }
-
-    // Harness for `CharSliceSearcher::next`.
-    #[kani::proof]
-    fn harness_char_slice_next() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let chars: [char; 4] = kani::any();
-        let pattern: &[char] = kani::slice::any_slice_of_array(&chars);
-        let mut searcher: CharSliceSearcher<'_, '_> = pattern.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_slice(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let step = searcher.next();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assume_valid_utf8_forward_boundary(
-            haystack,
-            old_state.front,
-            old_state.back,
-            new_state.front,
-        );
-
-        assert!(type_invariant_char_slice(&searcher));
-
-        assert_forward_step(old_state, new_state, step, haystack);
-    }
-
-    // Harness for `CharSliceSearcher::next_match`.
-    #[kani::proof]
-    fn harness_char_slice_next_match() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let chars: [char; 4] = kani::any();
-        let pattern: &[char] = kani::slice::any_slice_of_array(&chars);
-        let mut searcher: CharSliceSearcher<'_, '_> = pattern.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_slice(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let step = searcher.next_match();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assert!(type_invariant_char_slice(&searcher));
-
-        assert_forward_filtered(old_state, new_state, step, haystack);
-    }
-
-    // Harness for `CharSliceSearcher::next_reject`.
-    #[kani::proof]
-    fn harness_char_slice_next_reject() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let chars: [char; 4] = kani::any();
-        let pattern: &[char] = kani::slice::any_slice_of_array(&chars);
-        let mut searcher: CharSliceSearcher<'_, '_> = pattern.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_slice(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let step = searcher.next_reject();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assert!(type_invariant_char_slice(&searcher));
-        assert_forward_filtered(old_state, new_state, step, haystack);
-    }
-
-    // Harness for `CharSliceSearcher::next_back`.
-    #[kani::proof]
-    fn harness_char_slice_next_back() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let chars: [char; 4] = kani::any();
-        let pattern: &[char] = kani::slice::any_slice_of_array(&chars);
-        let mut searcher: CharSliceSearcher<'_, '_> = pattern.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_slice(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let step = searcher.next_back();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assume_valid_utf8_reverse_boundary(
-            haystack,
-            old_state.front,
-            old_state.back,
-            new_state.back,
-            step,
-        );
-
-        assert!(type_invariant_char_slice(&searcher));
-
-        assert_reverse_step(old_state, new_state, step, haystack);
-    }
-
-    // Harness for `CharSliceSearcher::next_match_back`.
-    #[kani::proof]
-    fn harness_char_slice_next_match_back() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let chars: [char; 4] = kani::any();
-        let pattern: &[char] = kani::slice::any_slice_of_array(&chars);
-        let mut searcher: CharSliceSearcher<'_, '_> = pattern.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_slice(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let result = searcher.next_match_back();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assert!(type_invariant_char_slice(&searcher));
-
-        assert_reverse_filtered(old_state, new_state, result, haystack);
-    }
-
-    // Harness for `CharSliceSearcher::next_reject_back`.
-    #[kani::proof]
-    fn harness_char_slice_next_reject_back() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let chars: [char; 4] = kani::any();
-        let pattern: &[char] = kani::slice::any_slice_of_array(&chars);
-        let mut searcher: CharSliceSearcher<'_, '_> = pattern.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_slice(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let result = searcher.next_reject_back();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assert!(type_invariant_char_slice(&searcher));
-
-        assert_reverse_filtered(old_state, new_state, result, haystack);
+    // Borrowed `&[char]` pattern with symbolic length.
+    generate_multi_char_eq_harnesses! {
+        flavor: wrapper,
+        names {
+            into_searcher: harness_char_slice_into_searcher,
+            next: harness_char_slice_next,
+            next_match: harness_char_slice_next_match,
+            next_reject: harness_char_slice_next_reject,
+            next_back: harness_char_slice_next_back,
+            next_match_back: harness_char_slice_next_match_back,
+            next_reject_back: harness_char_slice_next_reject_back,
+        },
+        setup |haystack, searcher| {
+            let chars: [char; 4] = kani::any();
+            let pattern: &[char] = kani::slice::any_slice_of_array(&chars);
+            let searcher: CharSliceSearcher<'_, '_> = pattern.into_searcher(haystack);
+        },
+        invariant: type_invariant_char_slice,
     }
 
     // Construct one concrete stateful `FnMut` whose return value is
@@ -4257,166 +4045,22 @@ mod verify_char_searcher {
         }
     }
 
-    // CharPredicateSearcher Harnesses
-
-    // Harness for `CharPredicateSearcher::into_searcher`.
-    #[kani::proof]
-    fn harness_char_predicate_into_searcher() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let predicate = any_stateful_char_predicate();
-
-        let searcher: CharPredicateSearcher<'_, _> = predicate.into_searcher(haystack);
-
-        assert!(type_invariant_char_predicate(&searcher));
-    }
-
-    // Harness for `CharPredicateSearcher::next`.
-    #[kani::proof]
-    fn harness_char_predicate_next() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let predicate = any_stateful_char_predicate();
-        let mut searcher: CharPredicateSearcher<'_, _> = predicate.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_predicate(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let step = searcher.next();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assume_valid_utf8_forward_boundary(
-            haystack,
-            old_state.front,
-            old_state.back,
-            new_state.front,
-        );
-
-        assert!(type_invariant_char_predicate(&searcher));
-
-        assert_forward_step(old_state, new_state, step, haystack);
-    }
-
-    // Harness for `CharPredicateSearcher::next_match`.
-    #[kani::proof]
-    fn harness_char_predicate_next_match() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let predicate = any_stateful_char_predicate();
-        let mut searcher: CharPredicateSearcher<'_, _> = predicate.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_predicate(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let step = searcher.next_match();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assert!(type_invariant_char_predicate(&searcher));
-
-        assert_forward_filtered(old_state, new_state, step, haystack);
-    }
-
-    // Harness for `CharPredicateSearcher::next_reject`.
-    #[kani::proof]
-    fn harness_char_predicate_next_reject() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let predicate = any_stateful_char_predicate();
-        let mut searcher: CharPredicateSearcher<'_, _> = predicate.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_predicate(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let step = searcher.next_reject();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assert!(type_invariant_char_predicate(&searcher));
-        // The Kani path rebuilds the concrete CharIndices state after every
-        // modeled step, so this checks state preservation as well as the
-        // returned-range safety obligation.
-        assert_forward_filtered(old_state, new_state, step, haystack);
-    }
-
-    // Harness for `CharPredicateSearcher::next_back`.
-    #[kani::proof]
-    fn harness_char_predicate_next_back() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let predicate = any_stateful_char_predicate();
-        let mut searcher: CharPredicateSearcher<'_, _> = predicate.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_predicate(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let step = searcher.next_back();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assume_valid_utf8_reverse_boundary(
-            haystack,
-            old_state.front,
-            old_state.back,
-            new_state.back,
-            step,
-        );
-
-        assert!(type_invariant_char_predicate(&searcher));
-
-        assert_reverse_step(old_state, new_state, step, haystack);
-    }
-
-    // Harness for `CharPredicateSearcher::next_match_back`.
-    #[kani::proof]
-    fn harness_char_predicate_next_match_back() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let predicate = any_stateful_char_predicate();
-        let mut searcher: CharPredicateSearcher<'_, _> = predicate.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_predicate(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let result = searcher.next_match_back();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assert!(type_invariant_char_predicate(&searcher));
-
-        assert_reverse_filtered(old_state, new_state, result, haystack);
-    }
-
-    // Harness for `CharPredicateSearcher::next_reject_back`.
-    #[kani::proof]
-    fn harness_char_predicate_next_reject_back() {
-        let bytes: [u8; MAX_UTF8_BYTES] = kani::any();
-        let haystack = any_valid_utf8_str(&bytes);
-        let predicate = any_stateful_char_predicate();
-        let mut searcher: CharPredicateSearcher<'_, _> = predicate.into_searcher(haystack);
-
-        set_any_multi_char_eq_active_window(&mut searcher.0);
-        assert!(type_invariant_char_predicate(&searcher));
-
-        let old_state = char_indices_state(&searcher.0.char_indices);
-
-        let result = searcher.next_reject_back();
-
-        let new_state = char_indices_state(&searcher.0.char_indices);
-
-        assert!(type_invariant_char_predicate(&searcher));
-
-        assert_reverse_filtered(old_state, new_state, result, haystack);
+    // Stateful `FnMut(char) -> bool` pattern.
+    generate_multi_char_eq_harnesses! {
+        flavor: wrapper,
+        names {
+            into_searcher: harness_char_predicate_into_searcher,
+            next: harness_char_predicate_next,
+            next_match: harness_char_predicate_next_match,
+            next_reject: harness_char_predicate_next_reject,
+            next_back: harness_char_predicate_next_back,
+            next_match_back: harness_char_predicate_next_match_back,
+            next_reject_back: harness_char_predicate_next_reject_back,
+        },
+        setup |haystack, searcher| {
+            let predicate = any_stateful_char_predicate();
+            let searcher: CharPredicateSearcher<'_, _> = predicate.into_searcher(haystack);
+        },
+        invariant: type_invariant_char_predicate,
     }
 }
