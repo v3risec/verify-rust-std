@@ -470,9 +470,10 @@ unsafe impl<'a> Searcher<'a> for CharSearcher<'a> {
     fn haystack(&self) -> &'a str {
         self.haystack
     }
-    #[cfg_attr(kani, kani::requires(
-        kani_pattern_harness_helpers::type_invariant_char_searcher(self)
-    ))]
+    #[cfg_attr(
+        kani,
+        kani::requires(kani_pattern_harness_helpers::type_invariant_char_searcher(self))
+    )]
     #[cfg_attr(kani, kani::modifies(&mut self.finger))]
     #[cfg_attr(kani, kani::ensures(|step: &SearchStep| {
         kani_pattern_harness_helpers::type_invariant_char_searcher(self)
@@ -538,9 +539,8 @@ unsafe impl<'a> Searcher<'a> for CharSearcher<'a> {
                 search_start,
                 search_end,
             ));
-            self.finger = kani::any_where(|finger: &usize| {
-                search_start <= *finger && *finger <= search_end
-            });
+            self.finger =
+                kani::any_where(|finger: &usize| search_start <= *finger && *finger <= search_end);
             assert!(kani_pattern_harness_helpers::valid_char_next_match_loop_head(
                 self,
                 search_start,
@@ -664,10 +664,7 @@ unsafe impl<'a> Searcher<'a> for CharSearcher<'a> {
             // `unwrap_unchecked` continuation-byte reads.
             kani::assume(
                 crate::str::from_utf8(
-                    self.haystack
-                        .as_bytes()
-                        .get(self.finger..self.finger_back)
-                        .unwrap(),
+                    self.haystack.as_bytes().get(self.finger..self.finger_back).unwrap(),
                 )
                 .is_ok(),
             );
@@ -701,9 +698,10 @@ unsafe impl<'a> Searcher<'a> for CharSearcher<'a> {
 }
 
 unsafe impl<'a> ReverseSearcher<'a> for CharSearcher<'a> {
-    #[cfg_attr(kani, kani::requires(
-        kani_pattern_harness_helpers::type_invariant_char_searcher(self)
-    ))]
+    #[cfg_attr(
+        kani,
+        kani::requires(kani_pattern_harness_helpers::type_invariant_char_searcher(self))
+    )]
     #[cfg_attr(kani, kani::modifies(&mut self.finger_back))]
     #[cfg_attr(kani, kani::ensures(|step: &SearchStep| {
         kani_pattern_harness_helpers::type_invariant_char_searcher(self)
@@ -890,10 +888,7 @@ unsafe impl<'a> ReverseSearcher<'a> for CharSearcher<'a> {
             assert!(self.haystack.is_char_boundary(self.finger_back));
             kani::assume(
                 crate::str::from_utf8(
-                    self.haystack
-                        .as_bytes()
-                        .get(self.finger..self.finger_back)
-                        .unwrap(),
+                    self.haystack.as_bytes().get(self.finger..self.finger_back).unwrap(),
                 )
                 .is_ok(),
             );
@@ -1103,11 +1098,7 @@ fn kani_utf8_char_start_before(haystack: &str, cursor: usize) -> Option<usize> {
 
     let fourth_index = cursor.checked_sub(4)?;
     let fourth_last = *bytes.get(fourth_index)?;
-    if (fourth_last as i8) >= -64 {
-        Some(fourth_index)
-    } else {
-        None
-    }
+    if (fourth_last as i8) >= -64 { Some(fourth_index) } else { None }
 }
 
 #[cfg(kani)]
@@ -1134,9 +1125,7 @@ impl<'a, C: MultiCharEq> MultiCharEqSearcher<'a, C> {
     fn kani_next_filtered(&mut self, want_match: bool) -> Option<(usize, usize)> {
         let haystack = self.haystack;
         let search_start = self.char_indices.front_offset;
-        let search_end = search_start
-            .checked_add(self.char_indices.iter.iter.len())
-            .unwrap();
+        let search_end = search_start.checked_add(self.char_indices.iter.iter.len()).unwrap();
 
         let mut cursor = search_start;
         let mut step_start = search_start;
@@ -1173,12 +1162,11 @@ impl<'a, C: MultiCharEq> MultiCharEqSearcher<'a, C> {
             }
 
             step_start = cursor;
-            let old_projection =
-                kani_pattern_harness_helpers::CharIndicesState {
-                    front: step_start,
-                    remaining: search_end - step_start,
-                    back: search_end,
-                };
+            let old_projection = kani_pattern_harness_helpers::CharIndicesState {
+                front: step_start,
+                remaining: search_end - step_start,
+                back: search_end,
+            };
             first = *haystack.as_bytes().get(cursor).unwrap();
             char_len = kani_utf8_char_len_from_first_byte(first);
             next_cursor = cursor.checked_add(char_len).unwrap();
@@ -1195,20 +1183,17 @@ impl<'a, C: MultiCharEq> MultiCharEqSearcher<'a, C> {
             } else {
                 SearchStep::Reject(step_start, cursor)
             };
-            let new_projection =
-                kani_pattern_harness_helpers::CharIndicesState {
-                    front: cursor,
-                    remaining: search_end - cursor,
-                    back: search_end,
-                };
-            assert!(
-                kani_pattern_harness_helpers::valid_multi_char_eq_forward_projection(
-                    old_projection,
-                    new_projection,
-                    projected_step,
-                    haystack,
-                )
-            );
+            let new_projection = kani_pattern_harness_helpers::CharIndicesState {
+                front: cursor,
+                remaining: search_end - cursor,
+                back: search_end,
+            };
+            assert!(kani_pattern_harness_helpers::valid_multi_char_eq_forward_projection(
+                old_projection,
+                new_projection,
+                projected_step,
+                haystack,
+            ));
             if step_is_match == want_match {
                 return Some((step_start, cursor));
             }
@@ -1220,9 +1205,7 @@ impl<'a, C: MultiCharEq> MultiCharEqSearcher<'a, C> {
     fn kani_next_filtered_back(&mut self, want_match: bool) -> Option<(usize, usize)> {
         let haystack = self.haystack;
         let search_start = self.char_indices.front_offset;
-        let search_end = search_start
-            .checked_add(self.char_indices.iter.iter.len())
-            .unwrap();
+        let search_end = search_start.checked_add(self.char_indices.iter.iter.len()).unwrap();
 
         let mut cursor = search_end;
         let mut step_end = search_end;
@@ -1258,12 +1241,11 @@ impl<'a, C: MultiCharEq> MultiCharEqSearcher<'a, C> {
             }
 
             step_end = cursor;
-            let old_projection =
-                kani_pattern_harness_helpers::CharIndicesState {
-                    front: search_start,
-                    remaining: step_end - search_start,
-                    back: step_end,
-                };
+            let old_projection = kani_pattern_harness_helpers::CharIndicesState {
+                front: search_start,
+                remaining: step_end - search_start,
+                back: step_end,
+            };
             char_len = kani_utf8_char_len_before(haystack, cursor);
             previous_cursor = cursor.checked_sub(char_len).unwrap();
 
@@ -1279,20 +1261,17 @@ impl<'a, C: MultiCharEq> MultiCharEqSearcher<'a, C> {
             } else {
                 SearchStep::Reject(cursor, step_end)
             };
-            let new_projection =
-                kani_pattern_harness_helpers::CharIndicesState {
-                    front: search_start,
-                    remaining: cursor - search_start,
-                    back: cursor,
-                };
-            assert!(
-                kani_pattern_harness_helpers::valid_multi_char_eq_reverse_projection(
-                    old_projection,
-                    new_projection,
-                    projected_step,
-                    haystack,
-                )
-            );
+            let new_projection = kani_pattern_harness_helpers::CharIndicesState {
+                front: search_start,
+                remaining: cursor - search_start,
+                back: cursor,
+            };
+            assert!(kani_pattern_harness_helpers::valid_multi_char_eq_reverse_projection(
+                old_projection,
+                new_projection,
+                projected_step,
+                haystack,
+            ));
             if step_is_match == want_match {
                 return Some((cursor, step_end));
             }
@@ -2763,12 +2742,7 @@ mod kani_pattern_harness_helpers {
             None
         };
 
-        assert!(valid_char_next_match_stub_result(
-            s,
-            search_start,
-            search_end,
-            result,
-        ));
+        assert!(valid_char_next_match_stub_result(s, search_start, search_end, result,));
         result
     }
 
@@ -2864,11 +2838,7 @@ mod kani_pattern_harness_helpers {
         let front = char_indices.front_offset;
         let remaining = char_indices.iter.iter.len();
         let back = front.checked_add(remaining).unwrap();
-        CharIndicesState {
-            front,
-            remaining,
-            back,
-        }
+        CharIndicesState { front, remaining, back }
     }
 
     // Safety projection for one production `MultiCharEqSearcher::next` step.
@@ -3349,7 +3319,6 @@ mod kani_pattern_harness_helpers {
             None => new_finger == old_finger && new_finger_back == old_finger,
         }
     }
-
 }
 
 #[cfg(kani)]
@@ -3422,11 +3391,8 @@ mod verify_char_searcher {
         // both fingers are boundaries in a valid haystack, their intervening
         // byte range is itself valid UTF-8. Kani does not derive this theorem
         // automatically through `Chars`.
-        let active = searcher
-            .haystack
-            .as_bytes()
-            .get(searcher.finger..searcher.finger_back)
-            .unwrap();
+        let active =
+            searcher.haystack.as_bytes().get(searcher.finger..searcher.finger_back).unwrap();
         kani::assume(crate::str::from_utf8(active).is_ok());
         searcher
     }
@@ -3446,14 +3412,7 @@ mod verify_char_searcher {
         kani::assume(searcher.haystack.is_char_boundary(front));
         kani::assume(searcher.haystack.is_char_boundary(back));
         kani::assume(
-            crate::str::from_utf8(
-                searcher
-                    .haystack
-                    .as_bytes()
-                    .get(front..back)
-                    .unwrap(),
-            )
-            .is_ok(),
+            crate::str::from_utf8(searcher.haystack.as_bytes().get(front..back).unwrap()).is_ok(),
         );
 
         searcher.kani_rebuild_char_indices_window(front, back);
@@ -3707,7 +3666,7 @@ mod verify_char_searcher {
                 next_reject_back: $next_reject_back:ident,
             },
             setup |$haystack:ident, $searcher:ident| {
-                $($setup:stmt)*
+                $($setup:tt)*
             },
             invariant: $invariant:path $(,)?
         ) => {
