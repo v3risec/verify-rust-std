@@ -1308,23 +1308,18 @@ unsafe impl<'a, 'b> Searcher<'a> for StrSearcher<'a, 'b> {
     #[inline]
     fn next_reject(&mut self) -> Option<(usize, usize)> {
         match self.searcher {
-            StrSearcherImpl::Empty(..) => {
-                match self.next() {
+            StrSearcherImpl::Empty(..) => match self.next() {
+                SearchStep::Reject(a, b) => Some((a, b)),
+                SearchStep::Done => None,
+                SearchStep::Match(..) => match self.next() {
                     SearchStep::Reject(a, b) => Some((a, b)),
                     SearchStep::Done => None,
-                    SearchStep::Match(..) => match self.next() {
-                        SearchStep::Reject(a, b) => Some((a, b)),
-                        SearchStep::Done => None,
-                        SearchStep::Match(..) => {
-                            kani::assert(
-                                false,
-                                "empty-needle next_reject cannot skip two matches",
-                            );
-                            None
-                        }
-                    },
-                }
-            }
+                    SearchStep::Match(..) => {
+                        kani::assert(false, "empty-needle next_reject cannot skip two matches");
+                        None
+                    }
+                },
+            },
             StrSearcherImpl::TwoWay(..) => {
                 let (old_position, long_period) = match &self.searcher {
                     StrSearcherImpl::TwoWay(searcher) => {
@@ -1338,15 +1333,13 @@ unsafe impl<'a, 'b> Searcher<'a> for StrSearcher<'a, 'b> {
                         StrSearcherImpl::TwoWay(searcher) => searcher,
                         StrSearcherImpl::Empty(_) => unreachable!(),
                     };
-                    assert!(
-                        kani_pattern_harness_helpers::valid_two_way_next_reject_loop_state(
-                            searcher,
-                            self.haystack,
-                            self.needle,
-                            old_position,
-                            long_period,
-                        )
-                    );
+                    assert!(kani_pattern_harness_helpers::valid_two_way_next_reject_loop_state(
+                        searcher,
+                        self.haystack,
+                        self.needle,
+                        old_position,
+                        long_period,
+                    ));
 
                     // Choose an arbitrary loop head after zero or more Match
                     // steps, then execute one `StrSearcher::next` iteration.
@@ -1576,23 +1569,21 @@ unsafe impl<'a, 'b> ReverseSearcher<'a> for StrSearcher<'a, 'b> {
     #[inline]
     fn next_reject_back(&mut self) -> Option<(usize, usize)> {
         match self.searcher {
-            StrSearcherImpl::Empty(..) => {
-                match self.next_back() {
+            StrSearcherImpl::Empty(..) => match self.next_back() {
+                SearchStep::Reject(a, b) => Some((a, b)),
+                SearchStep::Done => None,
+                SearchStep::Match(..) => match self.next_back() {
                     SearchStep::Reject(a, b) => Some((a, b)),
                     SearchStep::Done => None,
-                    SearchStep::Match(..) => match self.next_back() {
-                        SearchStep::Reject(a, b) => Some((a, b)),
-                        SearchStep::Done => None,
-                        SearchStep::Match(..) => {
-                            kani::assert(
-                                false,
-                                "empty-needle next_reject_back cannot skip two matches",
-                            );
-                            None
-                        }
-                    },
-                }
-            }
+                    SearchStep::Match(..) => {
+                        kani::assert(
+                            false,
+                            "empty-needle next_reject_back cannot skip two matches",
+                        );
+                        None
+                    }
+                },
+            },
             StrSearcherImpl::TwoWay(..) => {
                 let (old_end, long_period) = match &self.searcher {
                     StrSearcherImpl::TwoWay(searcher) => {
@@ -1857,11 +1848,7 @@ impl TwoWaySearcher {
     ) -> KaniTwoWayScan {
         assert!(start <= end);
         assert!(end <= needle.len());
-        assert!(
-            position
-                .checked_add(end)
-                .is_some_and(|index| index <= haystack.len())
-        );
+        assert!(position.checked_add(end).is_some_and(|index| index <= haystack.len()));
 
         // A nondeterministic index represents every loop iteration, so the
         // accesses below establish safety for the complete scan range. The
@@ -1900,11 +1887,7 @@ impl TwoWaySearcher {
     ) -> KaniTwoWayScan {
         assert!(start <= end);
         assert!(end <= needle.len());
-        assert!(
-            position
-                .checked_add(end)
-                .is_some_and(|index| index <= haystack.len())
-        );
+        assert!(position.checked_add(end).is_some_and(|index| index <= haystack.len()));
 
         // Reverse scanning visits the same index set in the opposite order.
         if start < end {
@@ -1945,16 +1928,14 @@ impl TwoWaySearcher {
         assert!(!S::use_early_reject());
         assert_eq!(self.position, remaining_position);
         assert!(old_position < remaining_position);
-        assert!(
-            kani_pattern_harness_helpers::valid_two_way_match_only_loop_state(
-                self,
-                haystack,
-                needle,
-                old_position,
-                long_period,
-                false,
-            )
-        );
+        assert!(kani_pattern_harness_helpers::valid_two_way_match_only_loop_state(
+            self,
+            haystack,
+            needle,
+            old_position,
+            long_period,
+            false,
+        ));
 
         let has_room = self
             .position
@@ -2052,32 +2033,28 @@ impl TwoWaySearcher {
 
         #[cfg(kani)]
         if !S::use_early_reject() {
-            assert!(
-                kani_pattern_harness_helpers::valid_two_way_match_only_loop_state(
-                    self,
-                    haystack,
-                    needle,
-                    old_pos,
-                    long_period,
-                    false,
-                )
-            );
+            assert!(kani_pattern_harness_helpers::valid_two_way_match_only_loop_state(
+                self,
+                haystack,
+                needle,
+                old_pos,
+                long_period,
+                false,
+            ));
 
             // Choose an arbitrary loop head after zero or more failed
             // candidates. The following candidate retains production control
             // flow and arithmetic; its two scan loops use the summaries above.
             self.position = kani::any();
             self.memory = kani::any();
-            kani::assume(
-                kani_pattern_harness_helpers::valid_two_way_match_only_loop_state(
-                    self,
-                    haystack,
-                    needle,
-                    old_pos,
-                    long_period,
-                    false,
-                ),
-            );
+            kani::assume(kani_pattern_harness_helpers::valid_two_way_match_only_loop_state(
+                self,
+                haystack,
+                needle,
+                old_pos,
+                long_period,
+                false,
+            ));
         }
 
         let needle_last = needle.len() - 1;
@@ -2119,11 +2096,8 @@ impl TwoWaySearcher {
             }
 
             // See if the right part of the needle matches
-            let right_start = if long_period {
-                self.crit_pos
-            } else {
-                cmp::max(self.crit_pos, self.memory)
-            };
+            let right_start =
+                if long_period { self.crit_pos } else { cmp::max(self.crit_pos, self.memory) };
 
             #[cfg(kani)]
             let matched_from = if long_period { 0 } else { self.memory };
@@ -2265,16 +2239,14 @@ impl TwoWaySearcher {
         assert_eq!(self.end, remaining_end);
         assert!(remaining_end < representative_end);
         assert!(representative_end <= old_end);
-        assert!(
-            kani_pattern_harness_helpers::valid_two_way_match_back_only_loop_state(
-                self,
-                haystack,
-                needle,
-                old_end,
-                long_period,
-                false,
-            )
-        );
+        assert!(kani_pattern_harness_helpers::valid_two_way_match_back_only_loop_state(
+            self,
+            haystack,
+            needle,
+            old_end,
+            long_period,
+            false,
+        ));
 
         if self.end < needle.len() {
             self.end = 0;
@@ -2377,32 +2349,28 @@ impl TwoWaySearcher {
 
         #[cfg(kani)]
         if !S::use_early_reject() {
-            assert!(
-                kani_pattern_harness_helpers::valid_two_way_match_back_only_loop_state(
-                    self,
-                    haystack,
-                    needle,
-                    old_end,
-                    long_period,
-                    false,
-                )
-            );
+            assert!(kani_pattern_harness_helpers::valid_two_way_match_back_only_loop_state(
+                self,
+                haystack,
+                needle,
+                old_end,
+                long_period,
+                false,
+            ));
 
             // Choose an arbitrary loop head after zero or more failed reverse
             // candidates. The following candidate retains production control
             // flow and arithmetic; its scan loops use the summaries above.
             self.end = kani::any();
             self.memory_back = kani::any();
-            kani::assume(
-                kani_pattern_harness_helpers::valid_two_way_match_back_only_loop_state(
-                    self,
-                    haystack,
-                    needle,
-                    old_end,
-                    long_period,
-                    false,
-                ),
-            );
+            kani::assume(kani_pattern_harness_helpers::valid_two_way_match_back_only_loop_state(
+                self,
+                haystack,
+                needle,
+                old_end,
+                long_period,
+                false,
+            ));
         }
 
         'search: loop {
@@ -2481,11 +2449,7 @@ impl TwoWaySearcher {
                     candidate_position,
                     0,
                     crit,
-                    if long_period {
-                        needle.len()
-                    } else {
-                        needle.len() - self.period
-                    },
+                    if long_period { needle.len() } else { needle.len() - self.period },
                 )
             };
             #[cfg(kani)]
@@ -3020,17 +2984,10 @@ mod kani_pattern_harness_helpers {
     // constructing an `&str` does not retain this semantic UTF-8 fact. Import
     // the fact permitted by Challenge 21 for the boundary-repair loop stub: a
     // character has at most three continuation bytes.
-    pub(super) fn valid_utf8_forward_boundary_reachability(
-        haystack: &str,
-        index: usize,
-    ) -> bool {
+    pub(super) fn valid_utf8_forward_boundary_reachability(haystack: &str, index: usize) -> bool {
         haystack.is_char_boundary(index)
-            || index
-                .checked_add(1)
-                .is_some_and(|next| haystack.is_char_boundary(next))
-            || index
-                .checked_add(2)
-                .is_some_and(|next| haystack.is_char_boundary(next))
+            || index.checked_add(1).is_some_and(|next| haystack.is_char_boundary(next))
+            || index.checked_add(2).is_some_and(|next| haystack.is_char_boundary(next))
             || index
                 .checked_add(MAX_LEN_UTF8 - 1)
                 .is_some_and(|next| haystack.is_char_boundary(next))
@@ -3069,17 +3026,10 @@ mod kani_pattern_harness_helpers {
         repaired
     }
 
-    pub(super) fn valid_utf8_reverse_boundary_reachability(
-        haystack: &str,
-        index: usize,
-    ) -> bool {
+    pub(super) fn valid_utf8_reverse_boundary_reachability(haystack: &str, index: usize) -> bool {
         haystack.is_char_boundary(index)
-            || index
-                .checked_sub(1)
-                .is_some_and(|previous| haystack.is_char_boundary(previous))
-            || index
-                .checked_sub(2)
-                .is_some_and(|previous| haystack.is_char_boundary(previous))
+            || index.checked_sub(1).is_some_and(|previous| haystack.is_char_boundary(previous))
+            || index.checked_sub(2).is_some_and(|previous| haystack.is_char_boundary(previous))
             || index
                 .checked_sub(MAX_LEN_UTF8 - 1)
                 .is_some_and(|previous| haystack.is_char_boundary(previous))
@@ -3589,9 +3539,7 @@ mod kani_pattern_harness_helpers {
     ) {
         assert!(!needle.is_empty());
         assert!(
-            position
-                .checked_add(needle.len())
-                .is_some_and(|match_end| match_end <= haystack.len())
+            position.checked_add(needle.len()).is_some_and(|match_end| match_end <= haystack.len())
         );
         assert!(valid_two_way_tracked_first_character(
             haystack,
@@ -3731,11 +3679,7 @@ mod kani_pattern_harness_helpers {
             assert_eq!(new.position, old.position);
             assert!(!new.is_match_fw);
             assert!(!new.is_finished);
-            assert!(valid_range_on_haystack(
-                haystack,
-                old.position,
-                old.position,
-            ));
+            assert!(valid_range_on_haystack(haystack, old.position, old.position,));
         } else if old.position == haystack.len() {
             assert_eq!(result, None);
             assert_eq!(new.position, old.position);
@@ -3748,11 +3692,7 @@ mod kani_pattern_harness_helpers {
             assert!(new.position - old.position <= MAX_LEN_UTF8);
             assert!(!new.is_match_fw);
             assert!(!new.is_finished);
-            assert!(valid_range_on_haystack(
-                haystack,
-                old.position,
-                new.position,
-            ));
+            assert!(valid_range_on_haystack(haystack, old.position, new.position,));
         }
     }
 
@@ -3785,11 +3725,7 @@ mod kani_pattern_harness_helpers {
             assert!(new.position - old.position <= MAX_LEN_UTF8);
             assert!(new.is_match_fw);
             assert!(!new.is_finished);
-            assert!(valid_range_on_haystack(
-                haystack,
-                old.position,
-                new.position,
-            ));
+            assert!(valid_range_on_haystack(haystack, old.position, new.position,));
         }
     }
 
