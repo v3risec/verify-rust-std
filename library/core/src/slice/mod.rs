@@ -5693,7 +5693,7 @@ mod verify {
         ($name:ident, $ty:ty) => {
             #[kani::proof_for_contract(<[$ty]>::get_unchecked_mut)]
             fn $name() {
-                let mut data: [$ty; 100] = kani::any();
+                let mut data: [$ty; 100] = [kani::any::<$ty>(); 100];
                 let slice = kani::slice::any_slice_of_array_mut(&mut data);
                 let index: usize = kani::any();
                 let _ = unsafe { slice.get_unchecked_mut(index) };
