@@ -5111,28 +5111,6 @@ mod kani_arc_harness_helpers {
         kani::assume(arc_slice_layout_ok::<T>(vec.len()));
         vec
     }
-
-    // This bounded constructor is intentionally reserved for selected,
-    // high-cost slice harnesses. The length bound limits the CI search space
-    // without changing the ownership states or other behavior being verified.
-    pub(super) fn verifier_nondet_vec_arc_bounded<T>(max_len: usize) -> Vec<T> {
-        let cap = kani::any_where(|cap: &usize| *cap <= max_len);
-        let elem_layout = Layout::new::<T>();
-        kani::assume(elem_layout.repeat(cap).is_ok());
-
-        let mut v = Vec::<T>::with_capacity(cap);
-        let sz = kani::any_where(|sz: &usize| *sz <= cap);
-        unsafe {
-            v.set_len(sz);
-            ptr::write_bytes(
-                v.as_mut_ptr().cast::<u8>(),
-                kani::any::<u8>(),
-                mem::size_of::<T>() * sz,
-            );
-        }
-        kani::assume(arc_slice_layout_ok::<T>(sz));
-        v
-    }
 }
 
 #[cfg(kani)]
@@ -5157,6 +5135,7 @@ mod verify {
                 let mut uninit: Arc<mem::MaybeUninit<$ty>, Global> = Arc::new_uninit_in(Global);
                 Arc::get_mut(&mut uninit).unwrap().write(value);
                 let init: Arc<$ty, Global> = unsafe { uninit.assume_init() };
+                kani::cover(true, "Arc::assume_init contract call is reachable");
                 assert_eq!(&*init, &expected);
             }
         };
@@ -5193,6 +5172,7 @@ mod verify {
                 }
                 let uninit: Arc<[mem::MaybeUninit<$elem>], Global> = Arc::from(initialized);
                 let _result: Arc<[$elem], Global> = unsafe { uninit.assume_init() };
+                kani::cover(true, "Arc<[MaybeUninit<T>]>::assume_init contract call is reachable");
             }
         };
     }
@@ -5219,6 +5199,7 @@ mod verify {
                 let arc: Arc<$ty> = Arc::new(value);
                 let ptr: *const $ty = Arc::into_raw(arc);
                 let _: Arc<$ty> = unsafe { Arc::from_raw(ptr) };
+                kani::cover(true, "Arc::from_raw contract call is reachable");
             }
         };
     }
@@ -5231,6 +5212,7 @@ mod verify {
                 let arc: Arc<[$elem]> = Arc::from(vec);
                 let ptr: *const [$elem] = Arc::into_raw(arc);
                 let _: Arc<[$elem]> = unsafe { Arc::from_raw(ptr) };
+                kani::cover(true, "Arc<[T]>::from_raw contract call is reachable");
             }
         };
     }
@@ -5265,6 +5247,7 @@ mod verify {
                 let ptr: *const $ty = Arc::into_raw(arc);
                 unsafe {
                     Arc::<$ty>::increment_strong_count(ptr);
+                    kani::cover(true, "Arc::increment_strong_count contract call is reachable");
                     let _recovered: Arc<$ty> = Arc::from_raw(ptr);
                     Arc::<$ty>::decrement_strong_count(ptr);
                 }
@@ -5281,6 +5264,10 @@ mod verify {
                 let ptr: *const [$elem] = Arc::into_raw(arc);
                 unsafe {
                     Arc::<[$elem]>::increment_strong_count(ptr);
+                    kani::cover(
+                        true,
+                        "Arc<[T]>::increment_strong_count contract call is reachable",
+                    );
                     let _recovered: Arc<[$elem]> = Arc::from_raw(ptr);
                     Arc::<[$elem]>::decrement_strong_count(ptr);
                 }
@@ -5319,6 +5306,7 @@ mod verify {
                 unsafe {
                     Arc::<$ty>::increment_strong_count(ptr);
                     Arc::<$ty>::decrement_strong_count(ptr);
+                    kani::cover(true, "Arc::decrement_strong_count contract call is reachable");
                     let _: Arc<$ty> = Arc::from_raw(ptr);
                 }
             }
@@ -5335,6 +5323,10 @@ mod verify {
                 unsafe {
                     Arc::<[$elem]>::increment_strong_count(ptr);
                     Arc::<[$elem]>::decrement_strong_count(ptr);
+                    kani::cover(
+                        true,
+                        "Arc<[T]>::decrement_strong_count contract call is reachable",
+                    );
                     let _: Arc<[$elem]> = Arc::from_raw(ptr);
                 }
             }
@@ -5370,6 +5362,7 @@ mod verify {
                 let arc: Arc<$ty, Global> = Arc::new_in(value, Global);
                 let (ptr, alloc): (*const $ty, Global) = Arc::into_raw_with_allocator(arc);
                 let _: Arc<$ty, Global> = unsafe { Arc::from_raw_in(ptr, alloc) };
+                kani::cover(true, "Arc::from_raw_in contract call is reachable");
             }
         };
     }
@@ -5382,6 +5375,7 @@ mod verify {
                 let arc: Arc<[$elem], Global> = Arc::from(vec);
                 let (ptr, alloc): (*const [$elem], Global) = Arc::into_raw_with_allocator(arc);
                 let _: Arc<[$elem], Global> = unsafe { Arc::from_raw_in(ptr, alloc) };
+                kani::cover(true, "Arc<[T]>::from_raw_in contract call is reachable");
             }
         };
     }
@@ -5416,6 +5410,7 @@ mod verify {
                 let (ptr, _alloc): (*const $ty, Global) = Arc::into_raw_with_allocator(arc);
                 unsafe {
                     Arc::<$ty, Global>::increment_strong_count_in(ptr, Global);
+                    kani::cover(true, "Arc::increment_strong_count_in contract call is reachable");
                     let _: Arc<$ty, Global> = Arc::<$ty, Global>::from_raw_in(ptr, Global);
                     Arc::<$ty, Global>::decrement_strong_count_in(ptr, Global);
                 }
@@ -5432,6 +5427,10 @@ mod verify {
                 let (ptr, _alloc): (*const [$elem], Global) = Arc::into_raw_with_allocator(arc);
                 unsafe {
                     Arc::<[$elem], Global>::increment_strong_count_in(ptr, Global);
+                    kani::cover(
+                        true,
+                        "Arc<[T]>::increment_strong_count_in contract call is reachable",
+                    );
                     let _: Arc<[$elem], Global> = Arc::<[$elem], Global>::from_raw_in(ptr, Global);
                     Arc::<[$elem], Global>::decrement_strong_count_in(ptr, Global);
                 }
@@ -5488,6 +5487,7 @@ mod verify {
                 let (ptr, alloc): (*const $ty, Global) = Arc::into_raw_with_allocator(arc2);
                 unsafe {
                     Arc::<$ty, Global>::decrement_strong_count_in(ptr, alloc);
+                    kani::cover(true, "Arc::decrement_strong_count_in contract call is reachable");
                 }
             }
         };
@@ -5503,6 +5503,10 @@ mod verify {
                 let (ptr, alloc): (*const [$elem], Global) = Arc::into_raw_with_allocator(arc2);
                 unsafe {
                     Arc::<[$elem], Global>::decrement_strong_count_in(ptr, alloc);
+                    kani::cover(
+                        true,
+                        "Arc<[T]>::decrement_strong_count_in contract call is reachable",
+                    );
                 }
             }
         };
@@ -5557,6 +5561,7 @@ mod verify {
                 unsafe {
                     *Arc::get_mut_unchecked(&mut arc) = replacement;
                 }
+                kani::cover(true, "Arc::get_mut_unchecked contract call is reachable");
             }
         };
     }
@@ -5573,6 +5578,7 @@ mod verify {
                         data[0] = kani::any::<$elem>();
                     }
                 }
+                kani::cover(true, "Arc<[T]>::get_mut_unchecked contract call is reachable");
             }
         };
     }
@@ -5605,6 +5611,7 @@ mod verify {
                 let value: $ty = kani::any();
                 let arc_dyn: Arc<dyn Any + Send + Sync, Global> = Arc::new_in(value, Global);
                 let _downcasted: Arc<$ty, Global> = unsafe { arc_dyn.downcast_unchecked::<$ty>() };
+                kani::cover(true, "Arc::downcast_unchecked contract call is reachable");
             }
         };
     }
@@ -5617,6 +5624,7 @@ mod verify {
                 let arc_dyn: Arc<dyn Any + Send + Sync, Global> = Arc::new_in(v, Global);
                 let _downcasted: Arc<Vec<$elem>, Global> =
                     unsafe { arc_dyn.downcast_unchecked::<Vec<$elem>>() };
+                kani::cover(true, "Arc<Vec<T>>::downcast_unchecked contract call is reachable");
             }
         };
     }
@@ -5651,6 +5659,7 @@ mod verify {
                 let weak: Weak<$ty> = Arc::downgrade(&strong);
                 let ptr: *const $ty = weak.into_raw();
                 let _recovered: Weak<$ty> = unsafe { Weak::from_raw(ptr) };
+                kani::cover(true, "Weak::from_raw contract call is reachable");
             }
         };
     }
@@ -5664,6 +5673,7 @@ mod verify {
                 let weak: Weak<[$elem]> = Arc::downgrade(&strong);
                 let ptr: *const [$elem] = weak.into_raw();
                 let _recovered: Weak<[$elem]> = unsafe { Weak::from_raw(ptr) };
+                kani::cover(true, "Weak<[T]>::from_raw contract call is reachable");
             }
         };
     }
@@ -5698,6 +5708,7 @@ mod verify {
                 let weak: Weak<$ty, Global> = Arc::downgrade(&strong);
                 let (ptr, alloc): (*const $ty, Global) = weak.into_raw_with_allocator();
                 let _recovered: Weak<$ty, Global> = unsafe { Weak::from_raw_in(ptr, alloc) };
+                kani::cover(true, "Weak::from_raw_in contract call is reachable");
             }
         };
     }
@@ -5711,6 +5722,7 @@ mod verify {
                 let weak: Weak<[$elem], Global> = Arc::downgrade(&strong);
                 let (ptr, alloc): (*const [$elem], Global) = weak.into_raw_with_allocator();
                 let _recovered: Weak<[$elem], Global> = unsafe { Weak::from_raw_in(ptr, alloc) };
+                kani::cover(true, "Weak<[T]>::from_raw_in contract call is reachable");
             }
         };
     }
@@ -6362,6 +6374,20 @@ mod verify {
                 let arc: Arc<$ty, Global> = Arc::new_in($expr, Global);
                 let shared = Arc::clone(&arc);
                 let _result = Arc::<$ty, Global>::try_unwrap(arc);
+                // Expected property:
+                //
+                // With another strong reference alive, `try_unwrap` must return `Err`.
+                //
+                // TODO(Kani#4537): Re-enable this assertion once the repository's pinned Kani
+                // includes model-checking/kani#4542.
+                //
+                // The currently pinned Kani incorrectly reports a failed atomic
+                // `compare_exchange` as successful (kani#4537), causing `Arc::try_unwrap`
+                // to take the success path even when the strong count is > 1.
+                //
+                // This has already been fixed upstream in kani#4542:
+                // https://github.com/model-checking/kani/issues/4537
+                // assert!(_result.is_err());
                 core::mem::forget(shared);
             }
 
@@ -6809,17 +6835,6 @@ mod verify {
 
     // Harness for Arc::into_raw_with_allocator.
     macro_rules! gen_arc_into_raw_with_allocator_sized_harness {
-        ($name:ident, dyn Any) => {
-            #[kani::proof]
-            pub fn $name() {
-                let arc_i32: Arc<i32, Global> = Arc::new_in(kani::any::<i32>(), Global);
-                let arc: Arc<dyn Any, Global> = arc_i32;
-                let (ptr, alloc): (*const dyn Any, Global) =
-                    Arc::<dyn Any, Global>::into_raw_with_allocator(arc);
-                let _recovered: Arc<dyn Any, Global> =
-                    unsafe { Arc::<dyn Any, Global>::from_raw_in(ptr, alloc) };
-            }
-        };
         ($name:ident, $ty:ty) => {
             #[kani::proof]
             pub fn $name() {
@@ -6885,16 +6900,6 @@ mod verify {
 
     // Harness for Arc::as_ptr.
     macro_rules! gen_arc_as_ptr_harness {
-        ($name:ident, dyn Any) => {
-            #[kani::proof]
-            pub fn $name() {
-                let arc_i32: Arc<i32, Global> = Arc::new_in(kani::any::<i32>(), Global);
-                let arc: Arc<dyn Any, Global> = arc_i32;
-                let arc_clone: Arc<dyn Any, Global> = Arc::clone(&arc);
-                let _ptr = Arc::<dyn Any, Global>::as_ptr(&arc);
-                let _clone_ptr = Arc::<dyn Any, Global>::as_ptr(&arc_clone);
-            }
-        };
         ($name:ident, $ty:ty) => {
             #[kani::proof]
             pub fn $name() {
@@ -6940,14 +6945,6 @@ mod verify {
 
     // Harness for Arc::inner.
     macro_rules! gen_arc_inner_sized_harness {
-        ($name:ident, dyn Any) => {
-            #[kani::proof]
-            pub fn $name() {
-                let arc_i32: Arc<i32, Global> = Arc::new_in(kani::any::<i32>(), Global);
-                let arc: Arc<dyn Any, Global> = arc_i32;
-                let _ = arc.inner();
-            }
-        };
         ($name:ident, $ty:ty) => {
             #[kani::proof]
             pub fn $name() {
@@ -6989,14 +6986,6 @@ mod verify {
 
     // Harness for Arc::from_box_in.
     macro_rules! gen_arc_from_box_in_harness {
-        ($name:ident, dyn Any) => {
-            #[kani::proof]
-            pub fn $name() {
-                let boxed_i32: Box<i32, Global> = Box::new_in(kani::any::<i32>(), Global);
-                let src: Box<dyn Any, Global> = boxed_i32;
-                let _ = Arc::<dyn Any, Global>::from_box_in(src);
-            }
-        };
         ($name:ident, $ty:ty) => {
             #[kani::proof]
             pub fn $name() {
@@ -7060,16 +7049,66 @@ mod verify {
     gen_arc_from_slice_copy_harness!(harness_arc_from_slice_copy_unit, ());
     gen_arc_from_slice_copy_harness!(harness_arc_from_slice_copy_array, [u8; 4]);
 
-    // Harness for Arc::clone.
-    macro_rules! gen_arc_clone_harness {
-        ($name:ident, dyn Any) => {
+    // A manual `Clone` implementation keeps this type out of the `TrivialClone`
+    // specialization, forcing `ArcFromSlice` to use its default clone-per-element path.
+    struct NonTrivialClone<T>(T);
+
+    impl<T: Clone> Clone for NonTrivialClone<T> {
+        fn clone(&self) -> Self {
+            Self(self.0.clone())
+        }
+    }
+
+    // `from_iter_exact` consumes a `Cloned<slice::Iter<_>>`, whose private iterator state
+    // cannot currently be summarized by a sound, tractable Kani loop contract. Bound the
+    // source and unwind the real loop instead.
+    macro_rules! gen_arc_from_slice_clone_harness {
+        ($name:ident, $ty:ty) => {
             #[kani::proof]
+            #[kani::unwind(6)]
             pub fn $name() {
-                let arc_i32: Arc<i32, Global> = Arc::new_in(kani::any::<i32>(), Global);
-                let arc: Arc<dyn Any, Global> = arc_i32;
-                let _ = Arc::clone(&arc);
+                type Elem = NonTrivialClone<$ty>;
+                let values: [$ty; 4] = kani::any();
+                let source = [
+                    NonTrivialClone(values[0]),
+                    NonTrivialClone(values[1]),
+                    NonTrivialClone(values[2]),
+                    NonTrivialClone(values[3]),
+                ];
+                let source_len: usize = kani::any();
+                kani::assume(source_len <= source.len());
+                let source = &source[..source_len];
+
+                let arc = <Arc<[Elem], Global> as ArcFromSlice<Elem>>::from_slice(source);
+                let ptr = Arc::as_ptr(&arc);
+                assert!(!ptr.is_null());
+                kani::cover(true, "ArcFromSlice Clone returns a non-null allocation");
+                assert!(arc.len() == source_len);
+                kani::cover(true, "ArcFromSlice Clone preserves the source length");
+                assert!(Arc::strong_count(&arc) == 1);
+                kani::cover(true, "ArcFromSlice Clone creates one strong owner");
+                assert!(Arc::weak_count(&arc) == 0);
+                kani::cover(true, "ArcFromSlice Clone creates no explicit weak owners");
             }
         };
+    }
+
+    gen_arc_from_slice_clone_harness!(harness_arc_from_slice_clone_i8, i8);
+    gen_arc_from_slice_clone_harness!(harness_arc_from_slice_clone_i16, i16);
+    gen_arc_from_slice_clone_harness!(harness_arc_from_slice_clone_i32, i32);
+    gen_arc_from_slice_clone_harness!(harness_arc_from_slice_clone_i64, i64);
+    gen_arc_from_slice_clone_harness!(harness_arc_from_slice_clone_i128, i128);
+    gen_arc_from_slice_clone_harness!(harness_arc_from_slice_clone_u8, u8);
+    gen_arc_from_slice_clone_harness!(harness_arc_from_slice_clone_u16, u16);
+    gen_arc_from_slice_clone_harness!(harness_arc_from_slice_clone_u32, u32);
+    gen_arc_from_slice_clone_harness!(harness_arc_from_slice_clone_u64, u64);
+    gen_arc_from_slice_clone_harness!(harness_arc_from_slice_clone_u128, u128);
+    gen_arc_from_slice_clone_harness!(harness_arc_from_slice_clone_unit, ());
+    gen_arc_from_slice_clone_harness!(harness_arc_from_slice_clone_array, [u8; 4]);
+    gen_arc_from_slice_clone_harness!(harness_arc_from_slice_clone_bool, bool);
+
+    // Harness for Arc::clone.
+    macro_rules! gen_arc_clone_harness {
         ($name:ident, $ty:ty) => {
             #[kani::proof]
             pub fn $name() {
@@ -7147,6 +7186,22 @@ mod verify {
                 let mut arc: Arc<$ty, Global> = Arc::new_in($expr, Global);
                 let shared: Arc<$ty, Global> = Arc::clone(&arc);
                 let _ = Arc::<$ty, Global>::make_mut(&mut arc);
+                // Expected property:
+                //
+                // With another strong reference alive, `make_mut` must perform
+                // clone-on-write, so `arc` and `shared` must no longer point to
+                // the same allocation.
+                //
+                // TODO(Kani#4537): Re-enable this assertion once the repository's pinned Kani
+                // includes model-checking/kani#4542.
+                //
+                // The currently pinned Kani incorrectly reports a failed atomic
+                // `compare_exchange` as successful (kani#4537), causing `Arc::make_mut`
+                // to skip the clone-on-write path even when the strong count is > 1.
+                //
+                // This has already been fixed upstream in kani#4542:
+                // https://github.com/model-checking/kani/pull/4542
+                // assert!(!Arc::ptr_eq(&arc, &shared));
                 core::mem::forget(shared);
             }
 
@@ -7174,6 +7229,22 @@ mod verify {
                 let mut arc: Arc<[$elem], Global> = Arc::from(vec);
                 let shared: Arc<[$elem], Global> = Arc::clone(&arc);
                 let _ = Arc::<[$elem], Global>::make_mut(&mut arc);
+                // Expected property:
+                //
+                // With another strong reference alive, `make_mut` must perform
+                // clone-on-write, so `arc` and `shared` must no longer point to
+                // the same allocation.
+                //
+                // TODO(Kani#4537): Re-enable this assertion once the repository's pinned Kani
+                // includes model-checking/kani#4542.
+                //
+                // The currently pinned Kani incorrectly reports a failed atomic
+                // `compare_exchange` as successful (kani#4537), causing `Arc::make_mut`
+                // to skip the clone-on-write path even when the strong count is > 1.
+                //
+                // This has already been fixed upstream in kani#4542:
+                // https://github.com/model-checking/kani/pull/4542
+                // assert!(!Arc::ptr_eq(&arc, &shared));
                 core::mem::forget(shared);
             }
 
@@ -7317,32 +7388,6 @@ mod verify {
 
     // Harness for Arc::get_mut.
     macro_rules! gen_arc_get_mut_harness {
-        ($unique:ident, $shared:ident, $weak_present:ident, dyn Any) => {
-            #[kani::proof]
-            pub fn $unique() {
-                let arc_i32: Arc<i32, Global> = Arc::new_in(kani::any::<i32>(), Global);
-                let mut arc: Arc<dyn Any, Global> = arc_i32;
-                let _ = Arc::<dyn Any, Global>::get_mut(&mut arc);
-            }
-
-            #[kani::proof]
-            pub fn $shared() {
-                let arc_i32: Arc<i32, Global> = Arc::new_in(kani::any::<i32>(), Global);
-                let mut arc: Arc<dyn Any, Global> = arc_i32;
-                let shared: Arc<dyn Any, Global> = Arc::clone(&arc);
-                let _ = Arc::<dyn Any, Global>::get_mut(&mut arc);
-                core::mem::forget(shared);
-            }
-
-            #[kani::proof]
-            pub fn $weak_present() {
-                let arc_i32: Arc<i32, Global> = Arc::new_in(kani::any::<i32>(), Global);
-                let mut arc: Arc<dyn Any, Global> = arc_i32;
-                let weak: Weak<dyn Any, Global> = Arc::downgrade(&arc);
-                let _ = Arc::<dyn Any, Global>::get_mut(&mut arc);
-                core::mem::forget(weak);
-            }
-        };
         ($unique:ident, $shared:ident, $weak_present:ident, $ty:ty) => {
             #[kani::proof]
             pub fn $unique() {
@@ -7362,7 +7407,24 @@ mod verify {
             pub fn $weak_present() {
                 let mut arc: Arc<$ty, Global> = Arc::new_in(kani::any::<$ty>(), Global);
                 let weak: Weak<$ty, Global> = Arc::downgrade(&arc);
-                let _ = Arc::<$ty, Global>::get_mut(&mut arc);
+                let _result = Arc::<$ty, Global>::get_mut(&mut arc);
+                // Expected property:
+                //
+                // With an outstanding weak reference, `get_mut` must return `None`
+                // because the allocation is not uniquely owned.
+                //
+                // TODO(Kani#4537): Re-enable this assertion once the repository's pinned Kani
+                // includes model-checking/kani#4542.
+                //
+                // `Arc::is_unique`, which is used by `Arc::get_mut`, checks for outstanding
+                // weak references using an atomic `compare_exchange`. The currently pinned
+                // Kani incorrectly reports a failed `compare_exchange` as successful
+                // (kani#4537), which can cause `get_mut` to return `Some` even when a
+                // weak reference is present.
+                //
+                // This has already been fixed upstream in kani#4542:
+                // https://github.com/model-checking/kani/pull/4542
+                // assert!(_result.is_none());
                 core::mem::forget(weak);
             }
         };
@@ -7391,7 +7453,24 @@ mod verify {
                 let vec = verifier_nondet_vec_arc::<$elem>();
                 let mut arc: Arc<[$elem], Global> = Arc::from(vec);
                 let weak: Weak<[$elem], Global> = Arc::downgrade(&arc);
-                let _ = Arc::<[$elem], Global>::get_mut(&mut arc);
+                let _result = Arc::<[$elem], Global>::get_mut(&mut arc);
+                // Expected property:
+                //
+                // With an outstanding weak reference, `get_mut` must return `None`
+                // because the allocation is not uniquely owned.
+                //
+                // TODO(Kani#4537): Re-enable this assertion once the repository's pinned Kani
+                // includes model-checking/kani#4542.
+                //
+                // `Arc::is_unique`, which is used by `Arc::get_mut`, checks for outstanding
+                // weak references using an atomic `compare_exchange`. The currently pinned
+                // Kani incorrectly reports a failed `compare_exchange` as successful
+                // (kani#4537), which can cause `get_mut` to return `Some` even when a
+                // weak reference is present.
+                //
+                // This has already been fixed upstream in kani#4542:
+                // https://github.com/model-checking/kani/pull/4542
+                // assert!(_result.is_none());
                 core::mem::forget(weak);
             }
         };
@@ -7526,44 +7605,6 @@ mod verify {
 
     // Harness for Arc::drop.
     macro_rules! gen_drop_arc_sized {
-        ($unique:ident, $shared:ident, $weak_present:ident, dyn Any) => {
-            #[kani::proof]
-            pub fn $unique() {
-                let arc_i32: Arc<i32, Global> = Arc::new_in(kani::any::<i32>(), Global);
-                let arc: Arc<dyn Any + Send + Sync, Global> = arc_i32;
-                // Drop the only strong owner at function end.
-                let _ = arc;
-            }
-
-            #[kani::proof]
-            pub fn $shared() {
-                let arc_i32: Arc<i32, Global> = Arc::new_in(kani::any::<i32>(), Global);
-                let arc: Arc<dyn Any + Send + Sync, Global> = arc_i32;
-                // Keep a second strong owner alive so the first drop takes the
-                // early-return path (`fetch_sub` returns 2).
-                let arc_clone: Arc<dyn Any + Send + Sync, Global> = Arc::clone(&arc);
-                {
-                    // Drop one strong owner while another is still alive.
-                    let _dropped = arc;
-                }
-                // Keep the remaining strong owner alive past the first drop.
-                let _ = arc_clone;
-            }
-
-            #[kani::proof]
-            pub fn $weak_present() {
-                let arc_i32: Arc<i32, Global> = Arc::new_in(kani::any::<i32>(), Global);
-                let arc: Arc<dyn Any + Send + Sync, Global> = arc_i32;
-                // Add a user-visible weak owner without increasing `strong`.
-                let weak: Weak<dyn Any + Send + Sync, Global> = Arc::downgrade(&arc);
-                {
-                    // Drop the last strong owner while the weak handle remains alive.
-                    let _dropped = arc;
-                }
-                // Keep the weak handle alive through that drop point.
-                let _ = weak;
-            }
-        };
         ($unique:ident, $shared:ident, $weak_present:ident, $ty:ty) => {
             #[kani::proof]
             pub fn $unique() {
@@ -7924,28 +7965,6 @@ mod verify {
 
     // Harness for Weak::as_ptr.
     macro_rules! gen_weak_as_ptr_harness {
-        ($live:ident, $dangling:ident, dyn Any) => {
-            #[kani::proof]
-            pub fn $live() {
-                let strong_i32: Arc<i32, Global> = Arc::new_in(kani::any::<i32>(), Global);
-                let strong: Arc<dyn Any, Global> = strong_i32;
-
-                // `strong` is still alive in this scope, so `downgrade`
-                // produces a non-sentinel weak pointer to the same allocation.
-                let weak: Weak<dyn Any, Global> = Arc::downgrade(&strong);
-                let _ptr: *const dyn Any = Weak::<dyn Any, Global>::as_ptr(&weak);
-            }
-
-            #[kani::proof]
-            pub fn $dangling() {
-                // `Weak::new_in(Global)` constructs the sentinel form directly.
-                // Coercing from `Weak<i32>` to `Weak<dyn Any>` changes only
-                // metadata; the sentinel address stays unchanged.
-                let weak_i32: Weak<i32, Global> = Weak::new_in(Global);
-                let weak: Weak<dyn Any, Global> = weak_i32;
-                let _ptr: *const dyn Any = Weak::<dyn Any, Global>::as_ptr(&weak);
-            }
-        };
         ($live:ident, $dangling:ident, $ty:ty) => {
             #[kani::proof]
             pub fn $live() {
@@ -8098,33 +8117,6 @@ mod verify {
 
     // Harness for Weak::into_raw_with_allocator.
     macro_rules! gen_weak_into_raw_with_allocator_harness {
-        ($live:ident, $dangling:ident, dyn Any) => {
-            #[kani::proof]
-            pub fn $live() {
-                let strong_i32: Arc<i32, Global> = Arc::new_in(kani::any::<i32>(), Global);
-                let strong: Arc<dyn Any, Global> = strong_i32;
-
-                // `strong` is live in this scope, so the downgraded weak points
-                // to a real allocation and `as_ptr()` takes the non-dangling path.
-                let weak: Weak<dyn Any, Global> = Arc::downgrade(&strong);
-                let (ptr, alloc): (*const dyn Any, Global) =
-                    Weak::<dyn Any, Global>::into_raw_with_allocator(weak);
-                let _recovered: Weak<dyn Any, Global> =
-                    unsafe { Weak::<dyn Any, Global>::from_raw_in(ptr, alloc) };
-            }
-
-            #[kani::proof]
-            pub fn $dangling() {
-                // `Weak::new_in(Global)` starts in the sentinel form, so
-                // `as_ptr()` takes the dangling path before returning `(ptr, alloc)`.
-                let weak_i32: Weak<i32, Global> = Weak::new_in(Global);
-                let weak: Weak<dyn Any, Global> = weak_i32;
-                let (ptr, alloc): (*const dyn Any, Global) =
-                    Weak::<dyn Any, Global>::into_raw_with_allocator(weak);
-                let _recovered: Weak<dyn Any, Global> =
-                    unsafe { Weak::<dyn Any, Global>::from_raw_in(ptr, alloc) };
-            }
-        };
         ($live:ident, $dangling:ident, $ty:ty) => {
             #[kani::proof]
             pub fn $live() {
@@ -8287,41 +8279,6 @@ mod verify {
 
     // Harness for Weak::upgrade.
     macro_rules! gen_weak_upgrade_harness {
-        ($live:ident, $strong_zero:ident, $dangling:ident, dyn Any) => {
-            #[kani::proof]
-            pub fn $live() {
-                let strong_i32: Arc<i32, Global> = Arc::new_in(kani::any::<i32>(), Global);
-                let strong: Arc<dyn Any, Global> = strong_i32;
-
-                // Live strong owner -> downgraded weak -> `fetch_update` sees a
-                // positive strong count and `upgrade()` can return `Some(...)`.
-                let weak: Weak<dyn Any, Global> = Arc::downgrade(&strong);
-                let _ = Weak::<dyn Any, Global>::upgrade(&weak);
-            }
-
-            #[kani::proof]
-            pub fn $strong_zero() {
-                let strong_i32: Arc<i32, Global> = Arc::new_in(kani::any::<i32>(), Global);
-                let strong: Arc<dyn Any, Global> = strong_i32;
-                let weak: Weak<dyn Any, Global> = Arc::downgrade(&strong);
-
-                // Dropping the last strong owner takes the allocation to
-                // "weak-only" state. The weak still points to a real allocation,
-                // but its strong count is now 0, so `checked_increment` returns
-                // `None` and `upgrade()` returns `None`.
-                drop(strong);
-                let _ = Weak::<dyn Any, Global>::upgrade(&weak);
-            }
-
-            #[kani::proof]
-            pub fn $dangling() {
-                // Sentinel weak from `new_in`: `inner()` returns `None`, so
-                // `upgrade()` returns `None` without touching any counters.
-                let weak_i32: Weak<i32, Global> = Weak::new_in(Global);
-                let weak: Weak<dyn Any, Global> = weak_i32;
-                let _ = Weak::<dyn Any, Global>::upgrade(&weak);
-            }
-        };
         ($live:ident, $strong_zero:ident, $dangling:ident, $ty:ty) => {
             #[kani::proof]
             pub fn $live() {
@@ -8354,16 +8311,11 @@ mod verify {
         };
     }
 
-    // The unsized `Weak::upgrade` harnesses use the bounded vector helper to
-    // keep CI resource usage predictable. This is a CI tradeoff, not a
-    // verification limitation: the unbounded path completes locally, but has
-    // not been stable on CI. The bound only limits slice size and capacity;
-    // `upgrade`'s live/strong-zero behavior remains explicitly exercised.
     macro_rules! gen_weak_upgrade_unsized_harness {
         ($live:ident, $strong_zero:ident, $dangling:ident, $elem:ty) => {
             #[kani::proof]
             pub fn $live() {
-                let vec = verifier_nondet_vec_arc_bounded::<$elem>(100);
+                let vec = verifier_nondet_vec_arc::<$elem>();
                 let strong: Arc<[$elem], Global> = Arc::from(vec);
 
                 // The weak points to a real slice allocation whose strong count
@@ -8374,7 +8326,7 @@ mod verify {
 
             #[kani::proof]
             pub fn $strong_zero() {
-                let vec = verifier_nondet_vec_arc_bounded::<$elem>(100);
+                let vec = verifier_nondet_vec_arc::<$elem>();
                 let strong: Arc<[$elem], Global> = Arc::from(vec);
                 let weak: Weak<[$elem], Global> = Arc::downgrade(&strong);
 
@@ -8522,26 +8474,6 @@ mod verify {
 
     // Harness for Weak::inner.
     macro_rules! gen_weak_inner_harness {
-        ($some:ident, $none:ident, dyn Any) => {
-            #[kani::proof]
-            pub fn $some() {
-                // Branch (2): live strong owner keeps the allocation around, so
-                // `downgrade` yields a non-dangling weak and `inner()` returns `Some(...)`.
-                let strong_i32: Arc<i32, Global> = Arc::new_in(kani::any::<i32>(), Global);
-                let strong: Arc<dyn Any, Global> = strong_i32;
-                let weak: Weak<dyn Any, Global> = Arc::downgrade(&strong);
-                let _inner = Weak::<dyn Any, Global>::inner(&weak);
-            }
-
-            #[kani::proof]
-            pub fn $none() {
-                // Branch (1): `Weak::new_in` encodes the sentinel dangling pointer,
-                // so `is_dangling(...)` is true and `inner()` returns `None`.
-                let weak_i32: Weak<i32, Global> = Weak::new_in(Global);
-                let weak: Weak<dyn Any, Global> = weak_i32;
-                let _inner = Weak::<dyn Any, Global>::inner(&weak);
-            }
-        };
         ($some:ident, $none:ident, $ty:ty) => {
             #[kani::proof]
             pub fn $some() {
@@ -8661,41 +8593,6 @@ mod verify {
 
     // Harness for Weak::drop.
     macro_rules! gen_drop_weak_harness {
-        ($live:ident, $after_drop:ident, $dangling:ident, dyn Any) => {
-            #[kani::proof]
-            pub fn $live() {
-                let strong_i32: Arc<i32, Global> = Arc::new_in(kani::any::<i32>(), Global);
-                let strong: Arc<dyn Any, Global> = strong_i32;
-                {
-                    // Create one explicit weak and let it drop at scope end.
-                    let _weak: Weak<dyn Any, Global> = Arc::downgrade(&strong);
-                }
-                // Dropping `_weak` runs `Drop for Weak`, but `strong` is still
-                // alive here, so the implicit weak remains and this is not the
-                // last-weak path.
-            }
-
-            #[kani::proof]
-            pub fn $after_drop() {
-                let strong_i32: Arc<i32, Global> = Arc::new_in(kani::any::<i32>(), Global);
-                let strong: Arc<dyn Any, Global> = strong_i32;
-                let weak: Weak<dyn Any, Global> = Arc::downgrade(&strong);
-
-                // Dropping all strong owners removes the implicit weak.
-                // The explicit `weak` below is now the last weak token, so its
-                // drop takes the deallocation branch.
-                drop(strong);
-                let _ = weak;
-            }
-
-            #[kani::proof]
-            pub fn $dangling() {
-                let weak_i32: Weak<i32, Global> = Weak::new_in(Global);
-                let weak: Weak<dyn Any, Global> = weak_i32;
-                // Sentinel weak has no `ArcInner`, so drop returns immediately.
-                let _ = weak;
-            }
-        };
         ($live:ident, $after_drop:ident, $dangling:ident, $ty:ty) => {
             #[kani::proof]
             pub fn $live() {
@@ -9015,6 +8912,113 @@ mod verify {
     gen_from_vec_harness!(harness_from_vec_arc_unit, ());
     gen_from_vec_harness!(harness_from_vec_arc_array, [u8; 4]);
 
+    // The `TrustedLen` path enters `from_iter_exact` with iterator state that current Kani
+    // loop contracts cannot summarize while preserving pointer validity and yielded values.
+    // Bound the iterator and unwind the real loop instead.
+    // Harness for ToArcSlice::to_arc_slice. The fixed four-element source and the length bound
+    // keep the iterator loop within the unwind budget while covering lengths from 0 through 4.
+    macro_rules! gen_to_arc_slice_harness {
+        ($name:ident, $ty:ty) => {
+            #[kani::proof]
+            #[kani::unwind(6)]
+            pub fn $name() {
+                let values: [$ty; 4] = kani::any();
+                let source_len: usize = kani::any();
+                kani::assume(source_len <= values.len());
+
+                let arc = ToArcSlice::to_arc_slice(values.into_iter().take(source_len));
+                let ptr = Arc::as_ptr(&arc);
+                assert!(!ptr.is_null());
+                kani::cover(true, "ToArcSlice returns a non-null allocation");
+                assert!(arc.len() == source_len);
+                kani::cover(true, "ToArcSlice preserves the source length");
+                assert!(Arc::strong_count(&arc) == 1);
+                kani::cover(true, "ToArcSlice creates one strong owner");
+                assert!(Arc::weak_count(&arc) == 0);
+                kani::cover(true, "ToArcSlice creates no explicit weak owners");
+            }
+        };
+    }
+
+    gen_to_arc_slice_harness!(harness_to_arc_slice_i8, i8);
+    gen_to_arc_slice_harness!(harness_to_arc_slice_i16, i16);
+    gen_to_arc_slice_harness!(harness_to_arc_slice_i32, i32);
+    gen_to_arc_slice_harness!(harness_to_arc_slice_i64, i64);
+    gen_to_arc_slice_harness!(harness_to_arc_slice_i128, i128);
+    gen_to_arc_slice_harness!(harness_to_arc_slice_u8, u8);
+    gen_to_arc_slice_harness!(harness_to_arc_slice_u16, u16);
+    gen_to_arc_slice_harness!(harness_to_arc_slice_u32, u32);
+    gen_to_arc_slice_harness!(harness_to_arc_slice_u64, u64);
+    gen_to_arc_slice_harness!(harness_to_arc_slice_u128, u128);
+    gen_to_arc_slice_harness!(harness_to_arc_slice_unit, ());
+    gen_to_arc_slice_harness!(harness_to_arc_slice_array, [u8; 4]);
+    gen_to_arc_slice_harness!(harness_to_arc_slice_bool, bool);
+
+    // Harness for TryFrom<Arc<[T], A>> for Arc<[T; N], A>. `N` is a const generic and cannot
+    // be symbolic, so each harness uses a fixed target length of two. The bounded source covers
+    // both the matching-length Ok path and the mismatched-length Err path.
+    macro_rules! gen_arc_try_from_slice_to_array_harness {
+        ($name:ident, $ty:ty) => {
+            #[kani::proof]
+            pub fn $name() {
+                let values = verifier_nondet_vec_arc::<$ty>();
+                let arc: Arc<[$ty], Global> = Arc::from(values);
+                let source_len = arc.len();
+                let expected_ptr = Arc::as_ptr(&arc);
+                let result = <Arc<[$ty; 2], Global> as core::convert::TryFrom<
+                    Arc<[$ty], Global>,
+                >>::try_from(arc);
+
+                match result {
+                    Ok(array) => {
+                        assert!(source_len == 2);
+                        kani::cover(true, "TryFrom Arc slice returns Ok for the matching length");
+                        assert!(array.len() == 2);
+                        kani::cover(true, "TryFrom Arc slice preserves the array length");
+                        assert!(core::ptr::eq(
+                            expected_ptr as *const $ty,
+                            Arc::as_ptr(&array) as *const $ty
+                        ));
+                        kani::cover(true, "TryFrom Arc slice preserves allocation identity");
+                        assert!(Arc::strong_count(&array) == 1);
+                        kani::cover(true, "TryFrom Arc slice preserves the strong reference count");
+                        assert!(Arc::weak_count(&array) == 0);
+                        kani::cover(true, "TryFrom Arc slice preserves the weak reference count");
+                    }
+                    Err(rest) => {
+                        assert!(source_len != 2);
+                        kani::cover(true, "TryFrom Arc slice returns Err for a mismatched length");
+                        assert!(rest.len() == source_len);
+                        kani::cover(true, "TryFrom Arc slice preserves the source length on Err");
+                        assert!(core::ptr::eq(Arc::as_ptr(&rest), expected_ptr));
+                        kani::cover(
+                            true,
+                            "TryFrom Arc slice returns the original allocation on Err",
+                        );
+                        assert!(Arc::strong_count(&rest) == 1);
+                        kani::cover(true, "TryFrom Arc slice preserves the strong count on Err");
+                        assert!(Arc::weak_count(&rest) == 0);
+                        kani::cover(true, "TryFrom Arc slice preserves the weak count on Err");
+                    }
+                }
+            }
+        };
+    }
+
+    gen_arc_try_from_slice_to_array_harness!(harness_arc_try_from_slice_to_array_i8, i8);
+    gen_arc_try_from_slice_to_array_harness!(harness_arc_try_from_slice_to_array_i16, i16);
+    gen_arc_try_from_slice_to_array_harness!(harness_arc_try_from_slice_to_array_i32, i32);
+    gen_arc_try_from_slice_to_array_harness!(harness_arc_try_from_slice_to_array_i64, i64);
+    gen_arc_try_from_slice_to_array_harness!(harness_arc_try_from_slice_to_array_i128, i128);
+    gen_arc_try_from_slice_to_array_harness!(harness_arc_try_from_slice_to_array_u8, u8);
+    gen_arc_try_from_slice_to_array_harness!(harness_arc_try_from_slice_to_array_u16, u16);
+    gen_arc_try_from_slice_to_array_harness!(harness_arc_try_from_slice_to_array_u32, u32);
+    gen_arc_try_from_slice_to_array_harness!(harness_arc_try_from_slice_to_array_u64, u64);
+    gen_arc_try_from_slice_to_array_harness!(harness_arc_try_from_slice_to_array_u128, u128);
+    gen_arc_try_from_slice_to_array_harness!(harness_arc_try_from_slice_to_array_unit, ());
+    gen_arc_try_from_slice_to_array_harness!(harness_arc_try_from_slice_to_array_array, [u8; 4]);
+    gen_arc_try_from_slice_to_array_harness!(harness_arc_try_from_slice_to_array_bool, bool);
+
     // Harness for UniqueArcUninit::new.
     macro_rules! gen_unique_arc_uninit_new_harness {
         ($name:ident, $ty:ty) => {
@@ -9023,18 +9027,6 @@ mod verify {
                 let value: $ty = kani::any::<$ty>();
                 let for_value: &$ty = &value;
                 let _uninit: UniqueArcUninit<$ty, Global> = UniqueArcUninit::new(for_value, Global);
-            }
-        };
-    }
-
-    macro_rules! gen_unique_arc_uninit_new_dyn_any_harness {
-        ($name:ident, $src_ty:ty) => {
-            #[kani::proof]
-            pub fn $name() {
-                let value: $src_ty = kani::any::<$src_ty>();
-                let trait_obj: &dyn Any = &value;
-                let _uninit: UniqueArcUninit<dyn Any, Global> =
-                    UniqueArcUninit::new(trait_obj, Global);
             }
         };
     }
@@ -9076,19 +9068,6 @@ mod verify {
                 let value: $ty = kani::any::<$ty>();
                 let mut uninit: UniqueArcUninit<$ty, Global> = UniqueArcUninit::new(&value, Global);
                 let _ptr: *mut $ty = uninit.data_ptr();
-            }
-        };
-    }
-
-    macro_rules! gen_data_ptr_dyn_any_harness {
-        ($name:ident, $src_ty:ty) => {
-            #[kani::proof]
-            pub fn $name() {
-                let value: $src_ty = kani::any::<$src_ty>();
-                let trait_obj: &dyn Any = &value;
-                let mut uninit: UniqueArcUninit<dyn Any, Global> =
-                    UniqueArcUninit::new(trait_obj, Global);
-                let _ptr: *mut dyn Any = uninit.data_ptr();
             }
         };
     }
@@ -9135,18 +9114,6 @@ mod verify {
         };
     }
 
-    macro_rules! gen_unique_arc_uninit_drop_dyn_any_harness {
-        ($name:ident, $src_ty:ty) => {
-            #[kani::proof]
-            pub fn $name() {
-                let value: $src_ty = kani::any::<$src_ty>();
-                let trait_obj: &dyn Any = &value;
-                let _uninit: UniqueArcUninit<dyn Any, Global> =
-                    UniqueArcUninit::new(trait_obj, Global);
-            }
-        };
-    }
-
     macro_rules! gen_unique_arc_uninit_drop_unsized_harness {
         ($name:ident, $elem:ty) => {
             #[kani::proof]
@@ -9187,18 +9154,6 @@ mod verify {
         };
     }
 
-    macro_rules! gen_uniquearc_into_arc_dyn_any_harness {
-        ($name:ident, $src_ty:ty) => {
-            #[kani::proof]
-            pub fn $name() {
-                let unique_src: UniqueArc<$src_ty, Global> =
-                    UniqueArc::new_in(kani::any::<$src_ty>(), Global);
-                let unique_dyn: UniqueArc<dyn Any, Global> = unique_src;
-                let _arc: Arc<dyn Any, Global> = UniqueArc::into_arc(unique_dyn);
-            }
-        };
-    }
-
     gen_uniquearc_into_arc_harness!(harness_uniquearc_into_arc_i8, i8);
     gen_uniquearc_into_arc_harness!(harness_uniquearc_into_arc_i16, i16);
     gen_uniquearc_into_arc_harness!(harness_uniquearc_into_arc_i32, i32);
@@ -9219,18 +9174,6 @@ mod verify {
             pub fn $name() {
                 let unique: UniqueArc<$ty, Global> = UniqueArc::new_in(kani::any::<$ty>(), Global);
                 let _weak: Weak<$ty, Global> = UniqueArc::downgrade(&unique);
-            }
-        };
-    }
-
-    macro_rules! gen_downgrade_dyn_any_harness {
-        ($name:ident, $src_ty:ty) => {
-            #[kani::proof]
-            pub fn $name() {
-                let unique_src: UniqueArc<$src_ty, Global> =
-                    UniqueArc::new_in(kani::any::<$src_ty>(), Global);
-                let unique_dyn: UniqueArc<dyn Any, Global> = unique_src;
-                let _weak: Weak<dyn Any, Global> = UniqueArc::downgrade(&unique_dyn);
             }
         };
     }
@@ -9259,18 +9202,6 @@ mod verify {
         };
     }
 
-    macro_rules! gen_deref_dyn_any_harness {
-        ($name:ident, $src_ty:ty) => {
-            #[kani::proof]
-            pub fn $name() {
-                let unique_src: UniqueArc<$src_ty, Global> =
-                    UniqueArc::new_in(kani::any::<$src_ty>(), Global);
-                let unique_dyn: UniqueArc<dyn Any, Global> = unique_src;
-                let _: &dyn Any = core::ops::Deref::deref(&unique_dyn);
-            }
-        };
-    }
-
     gen_deref_harness!(harness_uniquearc_deref_i8, i8);
     gen_deref_harness!(harness_uniquearc_deref_i16, i16);
     gen_deref_harness!(harness_uniquearc_deref_i32, i32);
@@ -9292,18 +9223,6 @@ mod verify {
                 let mut unique: UniqueArc<$ty, Global> =
                     UniqueArc::new_in(kani::any::<$ty>(), Global);
                 let _: &mut $ty = core::ops::DerefMut::deref_mut(&mut unique);
-            }
-        };
-    }
-
-    macro_rules! gen_deref_mut_dyn_any_harness {
-        ($name:ident, $src_ty:ty) => {
-            #[kani::proof]
-            pub fn $name() {
-                let unique_src: UniqueArc<$src_ty, Global> =
-                    UniqueArc::new_in(kani::any::<$src_ty>(), Global);
-                let mut unique_dyn: UniqueArc<dyn Any, Global> = unique_src;
-                let _: &mut dyn Any = core::ops::DerefMut::deref_mut(&mut unique_dyn);
             }
         };
     }
@@ -9352,32 +9271,6 @@ mod verify {
                     // Drop the strong owner now. The remaining `weak` keeps the allocation alive
                     // after `UniqueArc::drop` finishes dropping `data`.
                     let _dropped_strong = unique;
-                }
-                let _ = weak;
-            }
-        };
-    }
-
-    macro_rules! gen_drop_unique_arc_dyn_any_harness {
-        ($unique:ident, $weak_present:ident, $src_ty:ty) => {
-            #[kani::proof]
-            pub fn $unique() {
-                // Build `UniqueArc<dyn Any>` from a concrete source type and drop it directly.
-                let unique_src: UniqueArc<$src_ty, Global> =
-                    UniqueArc::new_in(kani::any::<$src_ty>(), Global);
-                let _unique_dyn: UniqueArc<dyn Any, Global> = unique_src;
-            }
-
-            #[kani::proof]
-            pub fn $weak_present() {
-                // Build the trait object, create one external weak alias, then drop the strong
-                // owner while that weak is still alive.
-                let unique_src: UniqueArc<$src_ty, Global> =
-                    UniqueArc::new_in(kani::any::<$src_ty>(), Global);
-                let unique_dyn: UniqueArc<dyn Any, Global> = unique_src;
-                let weak: Weak<dyn Any, Global> = UniqueArc::downgrade(&unique_dyn);
-                {
-                    let _dropped_strong = unique_dyn;
                 }
                 let _ = weak;
             }
