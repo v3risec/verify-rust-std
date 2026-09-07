@@ -4755,6 +4755,7 @@ mod verify {
                 let mut uninit: Rc<mem::MaybeUninit<$ty>, Global> = Rc::new_uninit_in(Global);
                 Rc::get_mut(&mut uninit).unwrap().write(value);
                 let init: Rc<$ty, Global> = unsafe { uninit.assume_init() };
+                kani::cover(true, "Rc::assume_init is reachable under its contract preconditions");
             }
         };
     }
@@ -4790,6 +4791,10 @@ mod verify {
                 }
                 let uninit: Rc<[mem::MaybeUninit<$elem>], Global> = Rc::from(initialized);
                 let _result: Rc<[$elem], Global> = unsafe { uninit.assume_init() };
+                kani::cover(
+                    true,
+                    "Rc::assume_init slice is reachable under its contract preconditions",
+                );
             }
         };
     }
@@ -4816,6 +4821,7 @@ mod verify {
                 let rc: Rc<$ty> = Rc::new(value);
                 let ptr: *const $ty = Rc::into_raw(rc);
                 let _: Rc<$ty> = unsafe { Rc::from_raw(ptr) };
+                kani::cover(true, "Rc::from_raw is reachable under its contract preconditions");
             }
         };
     }
@@ -4828,6 +4834,10 @@ mod verify {
                 let rc: Rc<[$elem]> = Rc::from(vec);
                 let ptr: *const [$elem] = Rc::into_raw(rc);
                 let _: Rc<[$elem]> = unsafe { Rc::from_raw(ptr) };
+                kani::cover(
+                    true,
+                    "Rc::from_raw slice is reachable under its contract preconditions",
+                );
             }
         };
     }
@@ -4862,6 +4872,10 @@ mod verify {
                 let ptr: *const $ty = Rc::into_raw(rc);
                 unsafe {
                     Rc::<$ty>::increment_strong_count(ptr);
+                    kani::cover(
+                        true,
+                        "Rc::increment_strong_count is reachable under its contract preconditions",
+                    );
                     let _recovered: Rc<$ty> = Rc::from_raw(ptr);
                     Rc::<$ty>::decrement_strong_count(ptr);
                 }
@@ -4878,6 +4892,10 @@ mod verify {
                 let ptr: *const [$elem] = Rc::into_raw(rc);
                 unsafe {
                     Rc::<[$elem]>::increment_strong_count(ptr);
+                    kani::cover(
+                        true,
+                        "Rc::increment_strong_count slice is reachable under its contract preconditions",
+                    );
                     let _recovered: Rc<[$elem]> = Rc::from_raw(ptr);
                     Rc::<[$elem]>::decrement_strong_count(ptr);
                 }
@@ -4885,25 +4903,25 @@ mod verify {
         };
     }
 
-    gen_increment_strong_count_sized_harness!(harness_increment_strong_count_i8, i8);
-    gen_increment_strong_count_sized_harness!(harness_increment_strong_count_i16, i16);
-    gen_increment_strong_count_sized_harness!(harness_increment_strong_count_i32, i32);
-    gen_increment_strong_count_sized_harness!(harness_increment_strong_count_i64, i64);
-    gen_increment_strong_count_sized_harness!(harness_increment_strong_count_i128, i128);
-    gen_increment_strong_count_sized_harness!(harness_increment_strong_count_u8, u8);
-    gen_increment_strong_count_sized_harness!(harness_increment_strong_count_u16, u16);
-    gen_increment_strong_count_sized_harness!(harness_increment_strong_count_u32, u32);
-    gen_increment_strong_count_sized_harness!(harness_increment_strong_count_u64, u64);
-    gen_increment_strong_count_sized_harness!(harness_increment_strong_count_u128, u128);
-    gen_increment_strong_count_sized_harness!(harness_increment_strong_count_bool, bool);
-    gen_increment_strong_count_sized_harness!(harness_increment_strong_count_unit, ());
-    gen_increment_strong_count_sized_harness!(harness_increment_strong_count_array, [u8; 4]);
+    gen_increment_strong_count_sized_harness!(harness_rc_increment_strong_count_i8, i8);
+    gen_increment_strong_count_sized_harness!(harness_rc_increment_strong_count_i16, i16);
+    gen_increment_strong_count_sized_harness!(harness_rc_increment_strong_count_i32, i32);
+    gen_increment_strong_count_sized_harness!(harness_rc_increment_strong_count_i64, i64);
+    gen_increment_strong_count_sized_harness!(harness_rc_increment_strong_count_i128, i128);
+    gen_increment_strong_count_sized_harness!(harness_rc_increment_strong_count_u8, u8);
+    gen_increment_strong_count_sized_harness!(harness_rc_increment_strong_count_u16, u16);
+    gen_increment_strong_count_sized_harness!(harness_rc_increment_strong_count_u32, u32);
+    gen_increment_strong_count_sized_harness!(harness_rc_increment_strong_count_u64, u64);
+    gen_increment_strong_count_sized_harness!(harness_rc_increment_strong_count_u128, u128);
+    gen_increment_strong_count_sized_harness!(harness_rc_increment_strong_count_bool, bool);
+    gen_increment_strong_count_sized_harness!(harness_rc_increment_strong_count_unit, ());
+    gen_increment_strong_count_sized_harness!(harness_rc_increment_strong_count_array, [u8; 4]);
 
-    gen_increment_strong_count_unsized_harness!(harness_increment_strong_count_vec_u8, [u8]);
-    gen_increment_strong_count_unsized_harness!(harness_increment_strong_count_vec_u16, [u16]);
-    gen_increment_strong_count_unsized_harness!(harness_increment_strong_count_vec_u32, [u32]);
-    gen_increment_strong_count_unsized_harness!(harness_increment_strong_count_vec_u64, [u64]);
-    gen_increment_strong_count_unsized_harness!(harness_increment_strong_count_vec_u128, [u128]);
+    gen_increment_strong_count_unsized_harness!(harness_rc_increment_strong_count_vec_u8, [u8]);
+    gen_increment_strong_count_unsized_harness!(harness_rc_increment_strong_count_vec_u16, [u16]);
+    gen_increment_strong_count_unsized_harness!(harness_rc_increment_strong_count_vec_u32, [u32]);
+    gen_increment_strong_count_unsized_harness!(harness_rc_increment_strong_count_vec_u64, [u64]);
+    gen_increment_strong_count_unsized_harness!(harness_rc_increment_strong_count_vec_u128, [u128]);
 
     // Rc::decrement_strong_count harnesses.
     macro_rules! gen_decrement_strong_count_sized_harness {
@@ -4916,6 +4934,10 @@ mod verify {
                 unsafe {
                     Rc::<$ty>::increment_strong_count(ptr);
                     Rc::<$ty>::decrement_strong_count(ptr);
+                    kani::cover(
+                        true,
+                        "Rc::decrement_strong_count is reachable under its contract preconditions",
+                    );
                     let _: Rc<$ty> = Rc::from_raw(ptr);
                 }
             }
@@ -4932,6 +4954,10 @@ mod verify {
                 unsafe {
                     Rc::<[$elem]>::increment_strong_count(ptr);
                     Rc::<[$elem]>::decrement_strong_count(ptr);
+                    kani::cover(
+                        true,
+                        "Rc::decrement_strong_count slice is reachable under its contract preconditions",
+                    );
                     let _: Rc<[$elem]> = Rc::from_raw(ptr);
                 }
             }
@@ -4967,6 +4993,7 @@ mod verify {
                 let rc: Rc<$ty, Global> = Rc::new_in(value, Global);
                 let (ptr, alloc): (*const $ty, Global) = Rc::into_raw_with_allocator(rc);
                 let _: Rc<$ty, Global> = unsafe { Rc::from_raw_in(ptr, alloc) };
+                kani::cover(true, "Rc::from_raw_in is reachable under its contract preconditions");
             }
         };
     }
@@ -4979,6 +5006,10 @@ mod verify {
                 let rc: Rc<[$elem], Global> = Rc::from(vec);
                 let (ptr, alloc): (*const [$elem], Global) = Rc::into_raw_with_allocator(rc);
                 let _: Rc<[$elem], Global> = unsafe { Rc::from_raw_in(ptr, alloc) };
+                kani::cover(
+                    true,
+                    "Rc::from_raw_in slice is reachable under its contract preconditions",
+                );
             }
         };
     }
@@ -5013,6 +5044,10 @@ mod verify {
                 let (ptr, _alloc): (*const $ty, Global) = Rc::into_raw_with_allocator(rc);
                 unsafe {
                     Rc::<$ty, Global>::increment_strong_count_in(ptr, Global);
+                    kani::cover(
+                        true,
+                        "Rc::increment_strong_count_in is reachable under its contract preconditions",
+                    );
                     let _: Rc<$ty, Global> = Rc::<$ty, Global>::from_raw_in(ptr, Global);
                     Rc::<$ty, Global>::decrement_strong_count_in(ptr, Global);
                 }
@@ -5029,6 +5064,10 @@ mod verify {
                 let (ptr, _alloc): (*const [$elem], Global) = Rc::into_raw_with_allocator(rc);
                 unsafe {
                     Rc::<[$elem], Global>::increment_strong_count_in(ptr, Global);
+                    kani::cover(
+                        true,
+                        "Rc::increment_strong_count_in slice is reachable under its contract preconditions",
+                    );
                     let _: Rc<[$elem], Global> = Rc::<[$elem], Global>::from_raw_in(ptr, Global);
                     Rc::<[$elem], Global>::decrement_strong_count_in(ptr, Global);
                 }
@@ -5085,6 +5124,10 @@ mod verify {
                 let (ptr, alloc): (*const $ty, Global) = Rc::into_raw_with_allocator(rc2);
                 unsafe {
                     Rc::<$ty, Global>::decrement_strong_count_in(ptr, alloc);
+                    kani::cover(
+                        true,
+                        "Rc::decrement_strong_count_in is reachable under its contract preconditions",
+                    );
                 }
             }
         };
@@ -5100,6 +5143,10 @@ mod verify {
                 let (ptr, alloc): (*const [$elem], Global) = Rc::into_raw_with_allocator(rc2);
                 unsafe {
                     Rc::<[$elem], Global>::decrement_strong_count_in(ptr, alloc);
+                    kani::cover(
+                        true,
+                        "Rc::decrement_strong_count_in slice is reachable under its contract preconditions",
+                    );
                 }
             }
         };
@@ -5152,7 +5199,12 @@ mod verify {
                 let replacement: $ty = kani::any();
                 let mut rc: Rc<$ty> = Rc::new(value);
                 unsafe {
-                    *Rc::get_mut_unchecked(&mut rc) = replacement;
+                    let data = Rc::get_mut_unchecked(&mut rc);
+                    kani::cover(
+                        true,
+                        "Rc::get_mut_unchecked is reachable under its contract preconditions",
+                    );
+                    *data = replacement;
                 }
             }
         };
@@ -5166,6 +5218,10 @@ mod verify {
                 let mut rc: Rc<[$elem]> = Rc::from(vec);
                 unsafe {
                     let data: &mut [$elem] = Rc::get_mut_unchecked(&mut rc);
+                    kani::cover(
+                        true,
+                        "Rc::get_mut_unchecked slice is reachable under its contract preconditions",
+                    );
                     if !data.is_empty() {
                         data[0] = kani::any::<$elem>();
                     }
@@ -5174,25 +5230,25 @@ mod verify {
         };
     }
 
-    gen_get_mut_unchecked_sized_harness!(harness_get_mut_unchecked_i8, i8);
-    gen_get_mut_unchecked_sized_harness!(harness_get_mut_unchecked_i16, i16);
-    gen_get_mut_unchecked_sized_harness!(harness_get_mut_unchecked_i32, i32);
-    gen_get_mut_unchecked_sized_harness!(harness_get_mut_unchecked_i64, i64);
-    gen_get_mut_unchecked_sized_harness!(harness_get_mut_unchecked_i128, i128);
-    gen_get_mut_unchecked_sized_harness!(harness_get_mut_unchecked_u8, u8);
-    gen_get_mut_unchecked_sized_harness!(harness_get_mut_unchecked_u16, u16);
-    gen_get_mut_unchecked_sized_harness!(harness_get_mut_unchecked_u32, u32);
-    gen_get_mut_unchecked_sized_harness!(harness_get_mut_unchecked_u64, u64);
-    gen_get_mut_unchecked_sized_harness!(harness_get_mut_unchecked_u128, u128);
-    gen_get_mut_unchecked_sized_harness!(harness_get_mut_unchecked_bool, bool);
-    gen_get_mut_unchecked_sized_harness!(harness_get_mut_unchecked_unit, ());
-    gen_get_mut_unchecked_sized_harness!(harness_get_mut_unchecked_array, [u8; 4]);
+    gen_get_mut_unchecked_sized_harness!(harness_rc_get_mut_unchecked_i8, i8);
+    gen_get_mut_unchecked_sized_harness!(harness_rc_get_mut_unchecked_i16, i16);
+    gen_get_mut_unchecked_sized_harness!(harness_rc_get_mut_unchecked_i32, i32);
+    gen_get_mut_unchecked_sized_harness!(harness_rc_get_mut_unchecked_i64, i64);
+    gen_get_mut_unchecked_sized_harness!(harness_rc_get_mut_unchecked_i128, i128);
+    gen_get_mut_unchecked_sized_harness!(harness_rc_get_mut_unchecked_u8, u8);
+    gen_get_mut_unchecked_sized_harness!(harness_rc_get_mut_unchecked_u16, u16);
+    gen_get_mut_unchecked_sized_harness!(harness_rc_get_mut_unchecked_u32, u32);
+    gen_get_mut_unchecked_sized_harness!(harness_rc_get_mut_unchecked_u64, u64);
+    gen_get_mut_unchecked_sized_harness!(harness_rc_get_mut_unchecked_u128, u128);
+    gen_get_mut_unchecked_sized_harness!(harness_rc_get_mut_unchecked_bool, bool);
+    gen_get_mut_unchecked_sized_harness!(harness_rc_get_mut_unchecked_unit, ());
+    gen_get_mut_unchecked_sized_harness!(harness_rc_get_mut_unchecked_array, [u8; 4]);
 
-    gen_get_mut_unchecked_unsized_harness!(harness_get_mut_unchecked_vec_u8, [u8]);
-    gen_get_mut_unchecked_unsized_harness!(harness_get_mut_unchecked_vec_u16, [u16]);
-    gen_get_mut_unchecked_unsized_harness!(harness_get_mut_unchecked_vec_u32, [u32]);
-    gen_get_mut_unchecked_unsized_harness!(harness_get_mut_unchecked_vec_u64, [u64]);
-    gen_get_mut_unchecked_unsized_harness!(harness_get_mut_unchecked_vec_u128, [u128]);
+    gen_get_mut_unchecked_unsized_harness!(harness_rc_get_mut_unchecked_vec_u8, [u8]);
+    gen_get_mut_unchecked_unsized_harness!(harness_rc_get_mut_unchecked_vec_u16, [u16]);
+    gen_get_mut_unchecked_unsized_harness!(harness_rc_get_mut_unchecked_vec_u32, [u32]);
+    gen_get_mut_unchecked_unsized_harness!(harness_rc_get_mut_unchecked_vec_u64, [u64]);
+    gen_get_mut_unchecked_unsized_harness!(harness_rc_get_mut_unchecked_vec_u128, [u128]);
 
     // Rc<dyn Any>::downcast_unchecked harnesses.
     macro_rules! gen_downcast_unchecked_harness {
@@ -5202,6 +5258,10 @@ mod verify {
                 let value: $ty = kani::any();
                 let rc_dyn: Rc<dyn Any, Global> = Rc::new_in(value, Global);
                 let _downcasted: Rc<$ty, Global> = unsafe { rc_dyn.downcast_unchecked::<$ty>() };
+                kani::cover(
+                    true,
+                    "Rc::downcast_unchecked is reachable under its contract preconditions",
+                );
             }
         };
     }
@@ -5214,29 +5274,33 @@ mod verify {
                 let rc_dyn: Rc<dyn Any, Global> = Rc::new_in(v, Global);
                 let _downcasted: Rc<Vec<$elem>, Global> =
                     unsafe { rc_dyn.downcast_unchecked::<Vec<$elem>>() };
+                kani::cover(
+                    true,
+                    "Rc::downcast_unchecked Vec is reachable under its contract preconditions",
+                );
             }
         };
     }
 
-    gen_downcast_unchecked_harness!(harness_downcast_unchecked_i8, i8);
-    gen_downcast_unchecked_harness!(harness_downcast_unchecked_i16, i16);
-    gen_downcast_unchecked_harness!(harness_downcast_unchecked_i32, i32);
-    gen_downcast_unchecked_harness!(harness_downcast_unchecked_i64, i64);
-    gen_downcast_unchecked_harness!(harness_downcast_unchecked_i128, i128);
-    gen_downcast_unchecked_harness!(harness_downcast_unchecked_u8, u8);
-    gen_downcast_unchecked_harness!(harness_downcast_unchecked_u16, u16);
-    gen_downcast_unchecked_harness!(harness_downcast_unchecked_u32, u32);
-    gen_downcast_unchecked_harness!(harness_downcast_unchecked_u64, u64);
-    gen_downcast_unchecked_harness!(harness_downcast_unchecked_u128, u128);
-    gen_downcast_unchecked_harness!(harness_downcast_unchecked_bool, bool);
-    gen_downcast_unchecked_harness!(harness_downcast_unchecked_unit, ());
-    gen_downcast_unchecked_harness!(harness_downcast_unchecked_array, [u8; 4]);
+    gen_downcast_unchecked_harness!(harness_rc_downcast_unchecked_i8, i8);
+    gen_downcast_unchecked_harness!(harness_rc_downcast_unchecked_i16, i16);
+    gen_downcast_unchecked_harness!(harness_rc_downcast_unchecked_i32, i32);
+    gen_downcast_unchecked_harness!(harness_rc_downcast_unchecked_i64, i64);
+    gen_downcast_unchecked_harness!(harness_rc_downcast_unchecked_i128, i128);
+    gen_downcast_unchecked_harness!(harness_rc_downcast_unchecked_u8, u8);
+    gen_downcast_unchecked_harness!(harness_rc_downcast_unchecked_u16, u16);
+    gen_downcast_unchecked_harness!(harness_rc_downcast_unchecked_u32, u32);
+    gen_downcast_unchecked_harness!(harness_rc_downcast_unchecked_u64, u64);
+    gen_downcast_unchecked_harness!(harness_rc_downcast_unchecked_u128, u128);
+    gen_downcast_unchecked_harness!(harness_rc_downcast_unchecked_bool, bool);
+    gen_downcast_unchecked_harness!(harness_rc_downcast_unchecked_unit, ());
+    gen_downcast_unchecked_harness!(harness_rc_downcast_unchecked_array, [u8; 4]);
 
-    gen_downcast_unchecked_vec_harness!(harness_downcast_unchecked_vec_u8, u8);
-    gen_downcast_unchecked_vec_harness!(harness_downcast_unchecked_vec_u16, u16);
-    gen_downcast_unchecked_vec_harness!(harness_downcast_unchecked_vec_u32, u32);
-    gen_downcast_unchecked_vec_harness!(harness_downcast_unchecked_vec_u64, u64);
-    gen_downcast_unchecked_vec_harness!(harness_downcast_unchecked_vec_u128, u128);
+    gen_downcast_unchecked_vec_harness!(harness_rc_downcast_unchecked_vec_u8, u8);
+    gen_downcast_unchecked_vec_harness!(harness_rc_downcast_unchecked_vec_u16, u16);
+    gen_downcast_unchecked_vec_harness!(harness_rc_downcast_unchecked_vec_u32, u32);
+    gen_downcast_unchecked_vec_harness!(harness_rc_downcast_unchecked_vec_u64, u64);
+    gen_downcast_unchecked_vec_harness!(harness_rc_downcast_unchecked_vec_u128, u128);
 
     // Weak::from_raw harnesses.
     macro_rules! gen_weak_from_raw_sized_harness {
@@ -5248,6 +5312,7 @@ mod verify {
                 let weak: Weak<$ty> = Rc::downgrade(&strong);
                 let ptr: *const $ty = weak.into_raw();
                 let _recovered: Weak<$ty> = unsafe { Weak::from_raw(ptr) };
+                kani::cover(true, "Weak::from_raw is reachable under its contract preconditions");
             }
         };
     }
@@ -5261,6 +5326,10 @@ mod verify {
                 let weak: Weak<[$elem]> = Rc::downgrade(&strong);
                 let ptr: *const [$elem] = weak.into_raw();
                 let _recovered: Weak<[$elem]> = unsafe { Weak::from_raw(ptr) };
+                kani::cover(
+                    true,
+                    "Weak::from_raw slice is reachable under its contract preconditions",
+                );
             }
         };
     }
@@ -5295,6 +5364,10 @@ mod verify {
                 let weak: Weak<$ty, Global> = Rc::downgrade(&strong);
                 let (ptr, alloc): (*const $ty, Global) = weak.into_raw_with_allocator();
                 let _recovered: Weak<$ty, Global> = unsafe { Weak::from_raw_in(ptr, alloc) };
+                kani::cover(
+                    true,
+                    "Weak::from_raw_in is reachable under its contract preconditions",
+                );
             }
         };
     }
@@ -5308,6 +5381,10 @@ mod verify {
                 let weak: Weak<[$elem], Global> = Rc::downgrade(&strong);
                 let (ptr, alloc): (*const [$elem], Global) = weak.into_raw_with_allocator();
                 let _recovered: Weak<[$elem], Global> = unsafe { Weak::from_raw_in(ptr, alloc) };
+                kani::cover(
+                    true,
+                    "Weak::from_raw_in slice is reachable under its contract preconditions",
+                );
             }
         };
     }
@@ -5332,7 +5409,7 @@ mod verify {
     gen_weak_from_raw_in_unsized_harness!(harness_weak_from_raw_in_vec_u64, [u64]);
     gen_weak_from_raw_in_unsized_harness!(harness_weak_from_raw_in_vec_u128, [u128]);
 
-    // === SAFE FUNCTIONS (52 of 54) ===
+    // === SAFE FUNCTIONS (54 — all required) ===
 
     // `Rc::get_mut` returns `Some(&mut T)` only when the allocation is fully unique:
     // `strong_count == 1` and `weak_count == 0` (`Rc::is_unique`).
