@@ -5,7 +5,7 @@ use crate::cmp::Ordering::{Equal, Greater, Less};
 use crate::intrinsics::const_eval_select;
 #[cfg(kani)]
 use crate::kani;
-use crate::marker::PointeeSized;
+use crate::marker::{Destruct, PointeeSized};
 use crate::mem::{self, SizedTypeProperties};
 use crate::slice::{self, SliceIndex};
 
@@ -364,12 +364,12 @@ impl<T: PointeeSized> *mut T {
         // Precondition 3: If `T` is a unit type (`size_of::<T>() == 0`), this check is unnecessary as it has no allocated memory.
         // Otherwise, for non-unit types, `self` and `self.wrapping_offset(count)` should point to the same allocated object,
         // restricting `count` to prevent crossing allocation boundaries.
-        ((core::mem::size_of::<T>() == 0) || (core::ub_checks::same_allocation(self, self.wrapping_offset(count))))
+        (count == 0 || (core::mem::size_of::<T>() == 0) || (core::ub_checks::same_allocation(self, self.wrapping_offset(count))))
     )]
     // Postcondition: If `T` is a unit type (`size_of::<T>() == 0`), no allocation check is needed.
     // Otherwise, for non-unit types, ensure that `self` and `result` point to the same allocated object,
     // verifying that the result remains within the same allocation as `self`.
-    #[ensures(|result| (core::mem::size_of::<T>() == 0) || core::ub_checks::same_allocation(self as *const T, *result as *const T))]
+    #[ensures(|result| count == 0 || (core::mem::size_of::<T>() == 0) || core::ub_checks::same_allocation(self as *const T, *result as *const T))]
     pub const unsafe fn offset(self, count: isize) -> *mut T
     where
         T: Sized,
@@ -988,12 +988,12 @@ impl<T: PointeeSized> *mut T {
         // Precondition 3: If `T` is a unit type (`size_of::<T>() == 0`), this check is unnecessary as it has no allocated memory.
         // Otherwise, for non-unit types, `self` and `self.wrapping_add(count)` should point to the same allocated object,
         // restricting `count` to prevent crossing allocation boundaries.
-        ((core::mem::size_of::<T>() == 0) || (core::ub_checks::same_allocation(self, self.wrapping_add(count))))
+        (count == 0 || (core::mem::size_of::<T>() == 0) || (core::ub_checks::same_allocation(self, self.wrapping_add(count))))
     )]
     // Postcondition: If `T` is a unit type (`size_of::<T>() == 0`), no allocation check is needed.
     // Otherwise, for non-unit types, ensure that `self` and `result` point to the same allocated object,
     // verifying that the result remains within the same allocation as `self`.
-    #[ensures(|result| (core::mem::size_of::<T>() == 0) || core::ub_checks::same_allocation(self as *const T, *result as *const T))]
+    #[ensures(|result| count == 0 || (core::mem::size_of::<T>() == 0) || core::ub_checks::same_allocation(self as *const T, *result as *const T))]
     pub const unsafe fn add(self, count: usize) -> Self
     where
         T: Sized,
@@ -1128,12 +1128,12 @@ impl<T: PointeeSized> *mut T {
         // Precondition 3: If `T` is a unit type (`size_of::<T>() == 0`), this check is unnecessary as it has no allocated memory.
         // Otherwise, for non-unit types, `self` and `self.wrapping_sub(count)` should point to the same allocated object,
         // restricting `count` to prevent crossing allocation boundaries.
-        ((core::mem::size_of::<T>() == 0) || (core::ub_checks::same_allocation(self, self.wrapping_sub(count))))
+        (count == 0 || (core::mem::size_of::<T>() == 0) || (core::ub_checks::same_allocation(self, self.wrapping_sub(count))))
     )]
     // Postcondition: If `T` is a unit type (`size_of::<T>() == 0`), no allocation check is needed.
     // Otherwise, for non-unit types, ensure that `self` and `result` point to the same allocated object,
     // verifying that the result remains within the same allocation as `self`.
-    #[ensures(|result| (core::mem::size_of::<T>() == 0) || core::ub_checks::same_allocation(self as *const T, *result as *const T))]
+    #[ensures(|result| count == 0 || (core::mem::size_of::<T>() == 0) || core::ub_checks::same_allocation(self as *const T, *result as *const T))]
     pub const unsafe fn sub(self, count: usize) -> Self
     where
         T: Sized,
@@ -1509,8 +1509,12 @@ impl<T: PointeeSized> *mut T {
     ///
     /// [`ptr::drop_in_place`]: crate::ptr::drop_in_place()
     #[stable(feature = "pointer_methods", since = "1.26.0")]
+    #[rustc_const_unstable(feature = "const_drop_in_place", issue = "109342")]
     #[inline(always)]
-    pub unsafe fn drop_in_place(self) {
+    pub const unsafe fn drop_in_place(self)
+    where
+        T: [const] Destruct,
+    {
         // SAFETY: the caller must uphold the safety contract for `drop_in_place`.
         unsafe { drop_in_place(self) }
     }
@@ -1827,7 +1831,8 @@ impl<T> *mut [T] {
     /// Gets a raw, mutable pointer to the underlying array.
     ///
     /// If `N` is not exactly equal to the length of `self`, then this method returns `None`.
-    #[unstable(feature = "slice_as_array", issue = "133508")]
+    #[stable(feature = "core_slice_as_array", since = "CURRENT_RUSTC_VERSION")]
+    #[rustc_const_stable(feature = "core_slice_as_array", since = "CURRENT_RUSTC_VERSION")]
     #[inline]
     #[must_use]
     pub const fn as_mut_array<const N: usize>(self) -> Option<*mut [T; N]> {
